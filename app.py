@@ -55,54 +55,6 @@ IMG_SIZE   = 224
 # Urutan HARUS sama dengan flow_from_directory (alphabetical)
 CLASS_LABELS = ["jintan", "kapulaga", "kemiri", "ketumbar", "pala"]
 
-# Data kelas — sesuai LABEL_DISPLAY + tips di main.js asli
-CLASSES = {
-    "jintan": {
-        "name": "Jintan",
-        "latin": "Cuminum cyminum",
-        "tips": [
-            "Sangrai biji sebentar sebelum digiling agar aroma lebih kuat.",
-            "Cocok untuk masakan kari, sup, dan nasi kebuli.",
-            "Simpan dalam wadah kedap udara, jauh dari cahaya langsung.",
-        ],
-    },
-    "kapulaga": {
-        "name": "Kapulaga",
-        "latin": "Elettaria cardamomum",
-        "tips": [
-            "Memarkan buah sebelum dimasukkan ke masakan.",
-            "Khas untuk teh rempah, masakan Padang, dan biryani.",
-            "Buang kulitnya jika hanya ingin aroma biji.",
-        ],
-    },
-    "kemiri": {
-        "name": "Kemiri",
-        "latin": "Aleurites moluccanus",
-        "tips": [
-            "Selalu sangrai dulu agar tidak pahit dan lebih harum.",
-            "Haluskan bersama bumbu dasar untuk memberi kekentalan.",
-            "Jangan dikonsumsi mentah dalam jumlah banyak.",
-        ],
-    },
-    "ketumbar": {
-        "name": "Ketumbar",
-        "latin": "Coriandrum sativum",
-        "tips": [
-            "Beli dalam bentuk biji utuh, giling segar saat digunakan.",
-            "Kombinasikan dengan jintan untuk bumbu dasar yang kaya.",
-            "Cocok untuk marinasi daging dan masakan Jawa.",
-        ],
-    },
-    "pala": {
-        "name": "Pala",
-        "latin": "Myristica fragrans",
-        "tips": [
-            "Parut langsung ke masakan untuk aroma terbaik.",
-            "Gunakan sedikit saja — rasanya sangat kuat dan hangat.",
-            "Khas masakan Maluku, Belanda, dan sup krim.",
-        ],
-    },
-}
 
 def md(html: str) -> None:
     """Wrapper st.markdown yang menghapus indentasi di awal tiap baris,
