@@ -9,14 +9,16 @@ CATATAN KONVERSI DARI FLASK -> STREAMLIT
 - Tab "Upload" & "Ambil Foto" 1:1 secara visual dengan versi Flask/JS asli
   (drag-drop asli diganti st.file_uploader bawaan Streamlit — Streamlit tidak
   mendukung drag-drop kustom seperti JS asli, tapi kartu hasil & style tetap sama).
-- Tab "Real-time" pakai streamlit-webrtc supaya kamera BENAR-BENAR live/streaming
-  (bukan cuma satu jepretan seperti st.camera_input bawaan), sesuai perilaku
-  original main.js (deteksi tiap N frame + kunci hasil kalau confidence tinggi
-  & prediksi sama berturut-turut).
+- Tab "Real-time" langsung membuka kamera lewat st.camera_input() dan auto-refresh
+  pakai time.sleep() + st.rerun() (tanpa streamlit-webrtc/av — lebih ringan & tidak
+  rawan konflik versi saat deploy). Setiap kali ada jepretan baru, otomatis dianalisis
+  dan logic kunci-deteksi (lock streak, threshold confidence) dari main.js asli tetap
+  dipertahankan, hasilnya dirender pakai CSS/kelas SpiceLens asli (live-result-card,
+  lock-dots, status pill, dst).
 - Semua logic model (load_model, preprocess, predict) identik dengan app.py Flask lama.
 
 Instalasi tambahan yang dibutuhkan (selain flask sebelumnya, sekarang tidak perlu):
-    pip install streamlit streamlit-webrtc av tensorflow pillow numpy
+    pip install streamlit tensorflow pillow numpy
 
 Menjalankan:
     streamlit run app.py
@@ -40,14 +42,6 @@ try:
     TF_AVAILABLE = True
 except ImportError:
     TF_AVAILABLE = False
-
-# ── streamlit-webrtc (untuk tab Real-time) ─────
-try:
-    from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, WebRtcMode
-    import av
-    WEBRTC_AVAILABLE = True
-except ImportError:
-    WEBRTC_AVAILABLE = False
 
 # ── Config ──────────────────────────────────────
 BASE_DIR   = Path(__file__).parent
@@ -1427,128 +1421,154 @@ with tab_snap:
             )
 
 # ══════════════════════════════════════════════════
-# TAB 3 — REAL-TIME  (streaming via streamlit-webrtc,
-# mereplikasi logic lock/countdown di main.js)
+# TAB 3 — REAL-TIME
+# Kamera langsung terbuka (st.camera_input) + auto-refresh
+# via time.sleep()/st.rerun(). Tanpa streamlit-webrtc/av.
+# Logic lock/countdown & tampilan tetap dari main.js + CSS asli.
 # ══════════════════════════════════════════════════
 with tab_live:
     st.markdown('<div class="app"><div class="step-label">03 — Deteksi Real-time</div></div>', unsafe_allow_html=True)
 
-    if not WEBRTC_AVAILABLE:
-        st.markdown(
-            '<div class="app">' + render_error_card(
-                "Fitur real-time butuh paket <code>streamlit-webrtc</code> dan <code>av</code>. "
-                "Install dengan: <code>pip install streamlit-webrtc av</code>"
-            ) + '</div>',
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown('<div class="app"><div class="live-settings">', unsafe_allow_html=True)
-        col1, col2 = st.columns([1, 1])
-        with col1:
-            lock_frames = st.radio(
-                "Waktu Kunci Deteksi", [2, 3], horizontal=True,
-                format_func=lambda x: f"{x} deteksi berturut-turut", key="lock_frames",
-            )
-        with col2:
-            conf_thresh_pct = st.slider("Min. kepercayaan (%)", 40, 90, 55, step=5, key="conf_thresh")
-        conf_thresh = conf_thresh_pct / 100
-        st.markdown('</div></div>', unsafe_allow_html=True)
+    # ── state ──
+    for k, v in {
+        "rt_paused": False,
+        "rt_interval": 2,      # detik — sesuai pilihan 2/3 detik di main.js
+        "lock_streak": 0,
+        "lock_candidate": None,
+    }.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
 
-        if "lock_streak" not in st.session_state:
-            st.session_state.lock_streak = 0
-        if "lock_candidate" not in st.session_state:
+    # ── Pengaturan kunci deteksi (sama seperti panel-live asli) ──
+    st.markdown('<div class="app"><div class="live-settings">', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="live-settings-label"><i class="ti ti-lock"></i> Waktu Kunci Deteksi</div>',
+        unsafe_allow_html=True,
+    )
+    col_iv, col_th = st.columns([1, 1])
+    with col_iv:
+        lock_frames = st.radio(
+            "Interval kunci", [2, 3], horizontal=True,
+            format_func=lambda x: f"{x} deteksi", key="lock_frames",
+            label_visibility="collapsed",
+        )
+    with col_th:
+        conf_thresh_pct = st.slider(
+            "Min. kepercayaan (%)", 40, 90, 55, step=5, key="conf_thresh",
+            label_visibility="collapsed",
+        )
+    conf_thresh = conf_thresh_pct / 100
+    st.markdown(
+        f'<div class="live-settings-hint">Hasil dikunci hanya jika prediksi sama selama '
+        f'<strong>{lock_frames}</strong> deteksi berturut-turut dan kepercayaan &ge; '
+        f'<strong>{conf_thresh_pct}%</strong></div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown('</div></div>', unsafe_allow_html=True)
+
+    # ── Kontrol pause/resume (kamera tetap langsung terbuka) ──
+    ctrl_col1, ctrl_col2, _ = st.columns([1, 1, 2])
+    with ctrl_col1:
+        if st.button("⏸  Jeda", key="btn_rt_pause", disabled=st.session_state.rt_paused):
+            st.session_state.rt_paused = True
+            st.rerun()
+    with ctrl_col2:
+        if st.button("▶  Lanjut", key="btn_rt_resume", disabled=not st.session_state.rt_paused):
+            st.session_state.rt_paused = False
+            st.rerun()
+
+    status_dot = "live" if not st.session_state.rt_paused else ""
+    st.markdown(f'''
+    <div class="app">
+    <div class="cam-status" style="margin:8px 0 12px">
+      <span class="dot {status_dot}"></span>
+      <span class="cam-status-label">{"Memindai otomatis…" if not st.session_state.rt_paused else "Dijeda"}</span>
+    </div>
+    </div>''', unsafe_allow_html=True)
+
+    # ── Kamera langsung terbuka ──
+    rt_frame = st.camera_input(
+        "Arahkan kamera ke biji rempah",
+        label_visibility="collapsed",
+        key="rt_cam",
+    )
+
+    result_slot = st.empty()
+
+    if not model_loaded:
+        result_slot.markdown(f'<div class="app">{render_error_card("Model belum dimuat.")}</div>', unsafe_allow_html=True)
+    elif rt_frame is not None:
+        pil_img = Image.open(rt_frame)
+        preds = predict_image(pil_img)
+        top = preds[0]
+
+        # ── logic lock streak (port dari main.js) ──
+        if top["probability"] >= conf_thresh:
+            if st.session_state.lock_candidate == top["class"]:
+                st.session_state.lock_streak += 1
+            else:
+                st.session_state.lock_candidate = top["class"]
+                st.session_state.lock_streak = 1
+        else:
             st.session_state.lock_candidate = None
-        if "live_last_preds" not in st.session_state:
-            st.session_state.live_last_preds = None
+            st.session_state.lock_streak = 0
 
-        class SpiceVideoProcessor(VideoProcessorBase):
-            def __init__(self):
-                self.last_infer_ts = 0.0
-                self.infer_interval = 1.0  # detik antar-inferensi (mirip timer JS)
+        locked = st.session_state.lock_streak >= lock_frames
+        streak = min(st.session_state.lock_streak, lock_frames)
+        pct = round(top["probability"] * 100, 1)
 
-            def recv(self, frame):
-                img = frame.to_ndarray(format="bgr24")
-                now = time.time()
-                if model_loaded and (now - self.last_infer_ts) >= self.infer_interval:
-                    self.last_infer_ts = now
-                    pil_img = Image.fromarray(img[:, :, ::-1])  # BGR -> RGB
-                    try:
-                        preds = predict_image(pil_img)
-                        st.session_state.live_last_preds = preds
-                    except Exception:
-                        pass
-                return frame
+        if locked:
+            status, status_text, icon = "locked", f"Terkunci: {top['label']}", "ti-lock"
+        elif streak > 0:
+            status, status_text, icon = "locking", f"Mengunci {top['label']}… ({streak}/{lock_frames})", "ti-lock-open"
+        else:
+            status, status_text, icon = "scanning", "Memindai…", "ti-radar"
 
-        ctx = webrtc_streamer(
-            key="spice_live",
-            mode=WebRtcMode.SENDRECV,
-            video_processor_factory=SpiceVideoProcessor,
-            media_stream_constraints={"video": True, "audio": False},
+        dots = "".join(
+            f'<span class="lock-dot{" filled" if i < streak else ""}"></span>'
+            for i in range(lock_frames)
         )
 
-        result_slot = st.empty()
+        bars = "".join(f'''
+        <div class="prob-row">
+          <span class="prob-rank">{i+1}</span>
+          <span class="prob-name">{p["label"]}</span>
+          <div class="prob-bar-outer"><div class="prob-bar-inner{" top" if i==0 else ""}" style="width:{round(p["probability"]*100,1)}%"></div></div>
+          <span class="prob-pct">{round(p["probability"]*100,1)}%</span>
+        </div>''' for i, p in enumerate(preds))
 
-        if ctx.state.playing and model_loaded:
-            preds = st.session_state.live_last_preds
-            if preds:
-                top = preds[0]
+        result_slot.markdown(f'''
+        <div class="app">
+        <div class="step-label" style="margin-top:8px">Deteksi Langsung</div>
+        <div class="live-result-card">
+          <div class="live-status-row">
+            <span class="live-status-pill {status}"><i class="ti {icon}"></i> {status_text}</span>
+          </div>
+          <div class="live-top">
+            <span class="live-name">{top["label"]}</span>
+            <span class="live-conf">{pct}%</span>
+          </div>
+          <div class="live-bar-outer"><div class="live-bar-inner" style="width:{pct}%"></div></div>
+          <div class="lock-info-row">
+            <div class="lock-dots">{dots}</div>
+            <span class="lock-info-text">{status_text}</span>
+          </div>
+          <div class="prob-section-title" style="margin:12px 0 8px">Semua kelas (5)</div>
+          <div class="prob-grid">{bars}</div>
+        </div>
+        </div>''', unsafe_allow_html=True)
+    else:
+        result_slot.markdown('''
+        <div class="app">
+        <div class="live-result-card">
+          <div class="live-status-row">
+            <span class="live-status-pill scanning"><i class="ti ti-radar"></i> Menunggu jepretan…</span>
+          </div>
+          <p style="font-size:13px;color:var(--text-muted)">Ambil foto di atas untuk mulai deteksi.</p>
+        </div>
+        </div>''', unsafe_allow_html=True)
 
-                # ── logic lock streak (port dari main.js) ──
-                if top["probability"] >= conf_thresh:
-                    if st.session_state.lock_candidate == top["class"]:
-                        st.session_state.lock_streak += 1
-                    else:
-                        st.session_state.lock_candidate = top["class"]
-                        st.session_state.lock_streak = 1
-                else:
-                    st.session_state.lock_candidate = None
-                    st.session_state.lock_streak = 0
-
-                locked = st.session_state.lock_streak >= lock_frames
-                streak = min(st.session_state.lock_streak, lock_frames)
-                pct = round(top["probability"] * 100, 1)
-
-                if locked:
-                    status, status_text, icon = "locked", f"Terkunci: {top['label']}", "ti-lock"
-                elif streak > 0:
-                    status, status_text, icon = "locking", f"Mengunci {top['label']}… ({streak}/{lock_frames})", "ti-lock-open"
-                else:
-                    status, status_text, icon = "scanning", "Memindai…", "ti-radar"
-
-                dots = "".join(
-                    f'<span class="lock-dot{" filled" if i < streak else ""}"></span>'
-                    for i in range(lock_frames)
-                )
-
-                bars = "".join(f'''
-                <div class="prob-row">
-                  <span class="prob-rank">{i+1}</span>
-                  <span class="prob-name">{p["label"]}</span>
-                  <div class="prob-bar-outer"><div class="prob-bar-inner{" top" if i==0 else ""}" style="width:{round(p["probability"]*100,1)}%"></div></div>
-                  <span class="prob-pct">{round(p["probability"]*100,1)}%</span>
-                </div>''' for i, p in enumerate(preds))
-
-                result_slot.markdown(f'''
-                <div class="app">
-                <div class="live-result-card">
-                  <div class="live-status-row">
-                    <span class="live-status-pill {status}"><i class="ti {icon}"></i> {status_text}</span>
-                  </div>
-                  <div class="live-top">
-                    <span class="live-name">{top["label"]}</span>
-                    <span class="live-conf">{pct}%</span>
-                  </div>
-                  <div class="live-bar-outer"><div class="live-bar-inner" style="width:{pct}%"></div></div>
-                  <div class="lock-info-row">
-                    <div class="lock-dots">{dots}</div>
-                    <span class="lock-info-text">{status_text}</span>
-                  </div>
-                  <div class="prob-section-title" style="margin:12px 0 8px">Semua kelas (5)</div>
-                  <div class="prob-grid">{bars}</div>
-                </div>
-                </div>''', unsafe_allow_html=True)
-
-                time.sleep(0.5)
-                st.rerun()
-        elif not model_loaded:
-            result_slot.markdown(f'<div class="app">{render_error_card("Model belum dimuat.")}</div>', unsafe_allow_html=True)
+    # ── auto-refresh (mirror pola BananaLens: sleep + rerun) ──
+    if not st.session_state.rt_paused:
+        time.sleep(st.session_state.rt_interval)
+        st.rerun()
