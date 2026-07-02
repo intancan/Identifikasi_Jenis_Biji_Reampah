@@ -1,5 +1,6 @@
-flask==3.1.0
+streamlit==1.39.0
+streamlit-webrtc==0.74.2
+av==13.1.0
 tensorflow==2.19.0
 Pillow==11.1.0
 numpy==2.1.0
-werkzeug==3.1.3
