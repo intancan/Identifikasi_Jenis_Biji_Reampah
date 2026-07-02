@@ -1440,23 +1440,19 @@ with tab_live:
             st.session_state[k] = v
 
     # ── Pengaturan kunci deteksi (sama seperti panel-live asli) ──
+    DEFAULT_CONF_THRESH_PCT = 55  # threshold tetap, tidak lagi diatur lewat slider
+
     st.markdown('<div class="app"><div class="live-settings">', unsafe_allow_html=True)
     st.markdown(
         '<div class="live-settings-label"><i class="ti ti-lock"></i> Waktu Kunci Deteksi</div>',
         unsafe_allow_html=True,
     )
-    col_iv, col_th = st.columns([1, 1])
-    with col_iv:
-        lock_frames = st.radio(
-            "Interval kunci", [2, 3], horizontal=True,
-            format_func=lambda x: f"{x} deteksi", key="lock_frames",
-            label_visibility="collapsed",
-        )
-    with col_th:
-        conf_thresh_pct = st.slider(
-            "Min. kepercayaan (%)", 40, 90, 55, step=5, key="conf_thresh",
-            label_visibility="collapsed",
-        )
+    lock_frames = st.radio(
+        "Interval kunci", [2, 3], horizontal=True,
+        format_func=lambda x: f"{x} deteksi", key="lock_frames",
+        label_visibility="collapsed",
+    )
+    conf_thresh_pct = DEFAULT_CONF_THRESH_PCT
     conf_thresh = conf_thresh_pct / 100
     st.markdown(
         f'<div class="live-settings-hint">Hasil dikunci hanya jika prediksi sama selama '
