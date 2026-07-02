@@ -1202,6 +1202,7 @@ with tab_upload:
     if uploaded is not None:
         pil_img = Image.open(uploaded)
         data_url = img_to_data_url(pil_img)
+        file_key = f"{uploaded.name}:{uploaded.size}"
 
         md(f'''
         <div class="app">
@@ -1216,14 +1217,27 @@ with tab_upload:
         </div>
         </div>''')
 
-        md('<div class="app"><div class="step-label" style="margin-top:8px">02 — Hasil Identifikasi</div></div>')
+        md('<div class="app" style="padding-top:0;padding-bottom:0.5rem">')
+        analyze_clicked = st.button("🔍 Analisis Gambar", key="analisis_btn", use_container_width=True)
+        md('</div>')
 
-        if not model_loaded:
-            md(f'<div class="app">{render_error_card("Model belum dimuat. Letakkan mobilenetv2_bijirempah.keras di folder model/.")}</div>')
-        else:
-            with st.spinner("Mengidentifikasi jenis biji rempah…"):
-                preds = predict_image(pil_img)
-            md(f'<div class="app">{render_result_card(preds, data_url)}</div>')
+        # tombol "Analisis" harus ditekan dulu; state disimpan per-file supaya
+        # hasil tetap tampil walau ada rerun lain, tapi otomatis reset kalau
+        # gambar yang diupload berbeda dari yang terakhir dianalisis.
+        if analyze_clicked:
+            st.session_state["upload_analyzed_key"] = file_key
+
+        if st.session_state.get("upload_analyzed_key") == file_key:
+            md('<div class="app"><div class="step-label" style="margin-top:8px">02 — Hasil Identifikasi</div></div>')
+
+            if not model_loaded:
+                md(f'<div class="app">{render_error_card("Model belum dimuat. Letakkan mobilenetv2_bijirempah.keras di folder model/.")}</div>')
+            else:
+                with st.spinner("Mengidentifikasi jenis biji rempah…"):
+                    preds = predict_image(pil_img)
+                md(f'<div class="app">{render_result_card(preds, data_url)}</div>')
+    else:
+        st.session_state.pop("upload_analyzed_key", None)
 
 # ══════════════════════════════════════════════════
 # TAB 2 — REAL-TIME
