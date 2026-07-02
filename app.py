@@ -5,23 +5,25 @@ Klasifikasi Biji Rempah — MobileNetV2 (.keras)
 CATATAN KONVERSI DARI FLASK -> STREAMLIT
 -----------------------------------------
 - CSS asli (style.css) disuntikkan APA ADANYA lewat st.markdown, jadi warna,
-  font (Sora/Inter), kartu, badge, bar probabilitas, tips-card, dsb TIDAK diubah.
+  font (Sora/Inter), kartu, badge, bar probabilitas, dsb TIDAK diubah.
 - Tab "Upload" & "Ambil Foto" 1:1 secara visual dengan versi Flask/JS asli
   (drag-drop asli diganti st.file_uploader bawaan Streamlit — Streamlit tidak
   mendukung drag-drop kustom seperti JS asli, tapi kartu hasil & style tetap sama).
-- Tab "Real-time" langsung membuka kamera lewat st.camera_input(), dibungkus
-  st.fragment() supaya HANYA bagian real-time yang auto-refresh/berkedip —
-  tab lain & sisa halaman tetap diam (tidak full-page rerun). Logic kunci-deteksi
-  (lock streak, threshold confidence) dari main.js asli tetap dipertahankan,
-  hasilnya dirender pakai CSS/kelas SpiceLens asli (live-result-card, lock-dots,
-  status pill, dst).
+- Tab "Real-time" TIDAK lagi auto-refresh otomatis (dulu pakai st.fragment
+  dengan run_every, yang menyebabkan widget kamera berkedip/reinit setiap
+  interval). Sekarang kamera hanya diproses saat pengguna mengambil jepretan
+  baru lewat st.camera_input — jadi tidak ada blink berulang. Logic kunci-
+  deteksi (lock streak, threshold confidence) tetap dipertahankan dan
+  diperbarui setiap kali ada jepretan baru, hasilnya tetap dirender pakai
+  CSS/kelas SpiceLens asli (live-result-card, lock-dots, status pill, dst).
 - Semua output HTML dirender lewat helper md()/render_into_slot() yang menghapus
   indentasi tiap baris sebelum dikirim ke st.markdown — mencegah Streamlit salah
   mengira blok HTML sebagai code block (markdown menganggap baris berindentasi
   >=4 spasi sebagai kode, makanya <div> sempat muncul sebagai teks mentah).
 - Semua logic model (load_model, preprocess, predict) identik dengan app.py Flask lama.
+- Fitur "Tips Penggunaan" sudah dihapus sepenuhnya (CSS, data, dan rendering).
 
-Instalasi tambahan yang dibutuhkan (selain flask sebelumnya, sekarang tidak perlu):
+Instalasi tambahan yang dibutuhkan:
     pip install streamlit tensorflow pillow numpy
 
 Menjalankan:
@@ -32,7 +34,6 @@ from __future__ import annotations
 
 import io
 import base64
-import time
 from pathlib import Path
 
 import numpy as np
@@ -54,6 +55,15 @@ IMG_SIZE   = 224
 
 # Urutan HARUS sama dengan flow_from_directory (alphabetical)
 CLASS_LABELS = ["jintan", "kapulaga", "kemiri", "ketumbar", "pala"]
+
+# Metadata kelas (nama tampilan + nama latin). Tidak ada lagi field "tips".
+CLASSES = {
+    "jintan":   {"name": "Jintan",   "latin": "Cuminum cyminum"},
+    "kapulaga": {"name": "Kapulaga", "latin": "Elettaria cardamomum"},
+    "kemiri":   {"name": "Kemiri",   "latin": "Aleurites moluccanus"},
+    "ketumbar": {"name": "Ketumbar", "latin": "Coriandrum sativum"},
+    "pala":     {"name": "Pala",     "latin": "Myristica fragrans"},
+}
 
 
 def md(html: str) -> None:
@@ -103,12 +113,11 @@ def predict_image(pil_img: Image.Image) -> list[dict]:
     pairs = sorted(zip(CLASS_LABELS, probs.tolist()), key=lambda x: x[1], reverse=True)
     out = []
     for cls, prob in pairs:
-        meta = CLASSES.get(cls, {"name": cls, "latin": "", "tips": []})
+        meta = CLASSES.get(cls, {"name": cls, "latin": ""})
         out.append({
             "class": cls,
             "label": meta["name"],
             "latin": meta["latin"],
-            "tips": meta["tips"],
             "probability": round(float(prob), 6),
         })
     return out
@@ -146,15 +155,6 @@ def render_result_card(preds: list[dict], img_data_url: str, section_title: str 
           <span class="prob-pct">{pp}%</span>
         </div>'''
 
-    tips_html = ""
-    if top.get("tips"):
-        items = "".join(f"<li>{t}</li>" for t in top["tips"])
-        tips_html = f'''
-        <div class="tips-card" style="display:block">
-          <div class="tips-card-title"><i class="ti ti-bulb"></i> Tips Penggunaan</div>
-          <ul class="tips-list">{items}</ul>
-        </div>'''
-
     return f'''
     <div class="result-card-main visible">
       <div class="result-hero">
@@ -173,7 +173,6 @@ def render_result_card(preds: list[dict], img_data_url: str, section_title: str 
         <div class="prob-section-title">{section_title}</div>
         <div class="prob-grid">{prob_rows}</div>
       </div>
-      {tips_html}
     </div>'''
 
 
@@ -187,6 +186,7 @@ def render_error_card(msg: str) -> str:
 
 # ══════════════════════════════════════════════════
 # CSS ASLI (style.css) — disuntikkan APA ADANYA
+# (blok CSS untuk .tips-card / .tips-card-title / .tips-list dihapus)
 # ══════════════════════════════════════════════════
 ORIGINAL_CSS = r"""
 /* ═══════════════════════════════════════════════
@@ -608,7 +608,7 @@ body {
 }
 
 /* ─ Prob section ─ */
-.prob-section { padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border); }
+.prob-section { padding: 1.25rem 1.5rem; }
 
 .prob-section-title {
   font-family: var(--ff-display);
@@ -662,36 +662,6 @@ body {
   width: 42px;
   text-align: right;
   flex-shrink: 0;
-}
-
-/* ─ Tips card ─ */
-.tips-card {
-  margin: 1.25rem 1.5rem;
-  background: var(--amber-50);
-  border: 1px solid var(--amber-200);
-  border-radius: var(--radius);
-  padding: 1rem 1.25rem;
-}
-.tips-card-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--amber-700);
-  margin-bottom: 8px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.tips-card-title i { font-size: 15px; }
-.tips-list {
-  padding-left: 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.tips-list li {
-  font-size: 13px;
-  color: var(--text-secondary);
-  line-height: 1.5;
 }
 
 /* ─ Bottom action ─ */
@@ -754,20 +724,6 @@ body {
   padding: 3px 9px;
   border-radius: 20px;
 }
-.scan-line {
-  position: absolute;
-  left: 0; right: 0;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, #4caf78, transparent);
-  animation: scanline 2s linear infinite;
-  pointer-events: none;
-}
-@keyframes scanline {
-  0%   { top: 0%; opacity: 0; }
-  10%  { opacity: 1; }
-  90%  { opacity: 1; }
-  100% { top: 100%; opacity: 0; }
-}
 
 .cam-placeholder {
   display: flex;
@@ -793,25 +749,21 @@ body {
   background: var(--surface-card);
 }
 
-/* Slot kiri — tombol sekunder (Matikan / Foto Ulang) */
 .cam-ctrl-left {
   display: flex;
   justify-content: flex-start;
 }
 
-/* Slot tengah — tombol aksi utama (bulat besar) */
 .cam-ctrl-center {
   display: flex;
   justify-content: center;
 }
 
-/* Slot kanan — status dot + teks */
 .cam-ctrl-right {
   display: flex;
   justify-content: flex-end;
 }
 
-/* Tombol bulat besar — aksi utama kamera */
 .btn-cam-main {
   width: 62px;
   height: 62px;
@@ -843,7 +795,6 @@ body {
   line-height: 1;
 }
 
-/* Tombol bulat kecil — aksi sekunder (Matikan / Foto Ulang) */
 .btn-cam-sec {
   width: 44px;
   height: 44px;
@@ -871,7 +822,6 @@ body {
   line-height: 1;
 }
 
-/* Tombol danger — Hentikan (live) */
 .btn-cam-sec.danger {
   border-color: #e5534b33;
   background: #fff1f0;
@@ -884,7 +834,6 @@ body {
   .btn-cam-sec.danger:hover { background: #361414; }
 }
 
-/* Status pill — pojok kanan */
 .cam-status {
   display: flex;
   flex-direction: column;
@@ -914,9 +863,7 @@ body {
 }
 .dot.live {
   background: var(--green-400);
-  animation: pulse 1.2s ease-in-out infinite;
 }
-@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
 
 /* ─ Real-time live result ─ */
 .live-result-card {
@@ -955,7 +902,6 @@ body {
   height: 100%;
   border-radius: 3px;
   background: var(--green-600);
-  transition: width .35s ease;
 }
 
 /* ── Tab navigation ────────────────────────────── */
@@ -1030,42 +976,6 @@ body {
 }
 .live-settings-label i { color: var(--green-600); font-size: 14px; }
 
-/* Pilihan interval: 2 detik / 3 detik */
-.live-interval-group {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.interval-opt {
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-}
-.interval-opt input[type="radio"] { display: none; }
-
-.interval-chip {
-  display: inline-block;
-  padding: 6px 18px;
-  border-radius: 20px;
-  font-size: 13px;
-  font-weight: 500;
-  border: 1.5px solid var(--border-strong);
-  background: var(--surface-input);
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all .15s;
-  user-select: none;
-}
-.interval-opt input:checked + .interval-chip {
-  background: var(--green-600);
-  border-color: var(--green-600);
-  color: #fff;
-  box-shadow: 0 2px 8px rgba(45,122,79,.3);
-}
-.interval-chip:hover { border-color: var(--green-400); }
-
-/* Hint teks */
 .live-settings-hint {
   font-size: 12px;
   color: var(--text-muted);
@@ -1073,115 +983,6 @@ body {
   margin-bottom: 10px;
 }
 .live-settings-hint strong { color: var(--green-600); }
-
-/* Slider confidence threshold */
-.conf-thresh-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.conf-thresh-lbl {
-  font-size: 12px;
-  color: var(--text-secondary);
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-.conf-thresh-row input[type="range"] {
-  flex: 1;
-  accent-color: var(--green-600);
-  height: 4px;
-  cursor: pointer;
-}
-.conf-thresh-val {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--green-600);
-  width: 36px;
-  text-align: right;
-  flex-shrink: 0;
-}
-
-/* ════════════════════════════════════════════════
-   LOCK OVERLAY — countdown ring di dalam video
-   ════════════════════════════════════════════════ */
-.lock-overlay {
-  position: absolute;
-  inset: 0;
-  background: rgba(0,0,0,.45);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  z-index: 10;
-}
-
-.lock-ring {
-  position: relative;
-  width: 64px;
-  height: 64px;
-}
-
-.lock-svg {
-  width: 64px;
-  height: 64px;
-  transform: rotate(-90deg);
-}
-
-.lock-track {
-  fill: none;
-  stroke: rgba(255,255,255,.2);
-  stroke-width: 5;
-}
-
-.lock-progress {
-  fill: none;
-  stroke: var(--green-400);
-  stroke-width: 5;
-  stroke-linecap: round;
-  transition: stroke-dashoffset .9s linear;
-}
-
-.lock-count {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--ff-display);
-  font-size: 22px;
-  font-weight: 700;
-  color: #fff;
-}
-
-.lock-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: #fff;
-  letter-spacing: 0.04em;
-  text-shadow: 0 1px 3px rgba(0,0,0,.6);
-}
-
-/* Locked badge — pojok bawah video */
-.locked-badge {
-  position: absolute;
-  bottom: 10px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: var(--green-600);
-  color: #fff;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 5px 14px;
-  border-radius: 20px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  z-index: 10;
-  box-shadow: 0 2px 10px rgba(0,0,0,.35);
-  white-space: nowrap;
-}
-.locked-badge i { font-size: 13px; }
 
 /* ════════════════════════════════════════════════
    STATUS PILL — di dalam result card
@@ -1382,153 +1183,139 @@ with tab_snap:
 
 # ══════════════════════════════════════════════════
 # TAB 3 — REAL-TIME
-# Kamera langsung terbuka (st.camera_input). Auto-refresh
-# dibungkus st.fragment supaya HANYA bagian real-time ini
-# yang berkedip/refresh — tab lain & sisa halaman diam.
-# Logic lock/countdown & tampilan tetap dari main.js + CSS asli.
+# Kamera muncul lewat st.camera_input. TIDAK ADA auto-refresh
+# (dulu pakai st.fragment(run_every=...) yang bikin widget kamera
+# berkedip/reinit tiap beberapa detik). Sekarang deteksi & logic
+# lock streak hanya jalan saat ada jepretan BARU dari pengguna,
+# jadi halaman diam / tidak berkedip di antara jepretan.
 # ══════════════════════════════════════════════════
 with tab_live:
     md('<div class="app"><div class="step-label">03 — Deteksi Real-time</div></div>')
 
     # ── state ──
     for k, v in {
-        "rt_paused": False,
-        "rt_interval": 2,      # detik — sesuai pilihan 2/3 detik di main.js
         "lock_streak": 0,
         "lock_candidate": None,
+        "rt_last_frame_id": None,
     }.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
-    # ── Pengaturan kunci deteksi (sama seperti panel-live asli) ──
-    DEFAULT_CONF_THRESH_PCT = 55  # threshold tetap, tidak lagi diatur lewat slider
+    DEFAULT_CONF_THRESH_PCT = 55  # threshold tetap
 
     md('<div class="app"><div class="live-settings">')
     md('<div class="live-settings-label"><i class="ti ti-lock"></i> Waktu Kunci Deteksi</div>')
     lock_frames = st.radio(
         "Interval kunci", [2, 3], horizontal=True,
-        format_func=lambda x: f"{x} deteksi", key="lock_frames",
+        format_func=lambda x: f"{x} jepretan", key="lock_frames",
         label_visibility="collapsed",
     )
     conf_thresh_pct = DEFAULT_CONF_THRESH_PCT
     conf_thresh = conf_thresh_pct / 100
     md(
         f'<div class="live-settings-hint">Hasil dikunci hanya jika prediksi sama selama '
-        f'<strong>{lock_frames}</strong> deteksi berturut-turut dan kepercayaan &ge; '
-        f'<strong>{conf_thresh_pct}%</strong></div>'
+        f'<strong>{lock_frames}</strong> jepretan berturut-turut dan kepercayaan &ge; '
+        f'<strong>{conf_thresh_pct}%</strong>. Ambil beberapa foto berturut-turut dari '
+        f'sudut yang sama untuk mengunci hasil.</div>'
     )
     md('</div></div>')
 
-    # ── Kontrol pause/resume (kamera tetap langsung terbuka) ──
-    ctrl_col1, ctrl_col2, _ = st.columns([1, 1, 2])
-    with ctrl_col1:
-        if st.button("⏸  Jeda", key="btn_rt_pause", disabled=st.session_state.rt_paused):
-            st.session_state.rt_paused = True
-            st.rerun()
-    with ctrl_col2:
-        if st.button("▶  Lanjut", key="btn_rt_resume", disabled=not st.session_state.rt_paused):
-            st.session_state.rt_paused = False
-            st.rerun()
+    md('<div class="app"><div class="cam-status" style="margin:8px 0 12px">'
+       '<span class="dot"></span><span class="cam-status-label">Ambil foto untuk mendeteksi</span>'
+       '</div></div>')
 
-    # ── Fragment: hanya blok ini yang auto-refresh, bukan seluruh app ──
-    @st.fragment(run_every=None if st.session_state.rt_paused else f"{st.session_state.rt_interval}s")
-    def live_fragment():
-        status_dot = "live" if not st.session_state.rt_paused else ""
-        md(f'''
+    rt_frame = st.camera_input(
+        "Arahkan kamera ke biji rempah lalu ambil foto",
+        label_visibility="collapsed",
+        key="rt_cam",
+    )
+
+    result_slot = st.empty()
+
+    def render_into_slot(html: str) -> None:
+        cleaned = "\n".join(line.lstrip() for line in html.split("\n"))
+        result_slot.markdown(cleaned, unsafe_allow_html=True)
+
+    if not model_loaded:
+        render_into_slot(f'<div class="app">{render_error_card("Model belum dimuat.")}</div>')
+    elif rt_frame is None:
+        render_into_slot('''
         <div class="app">
-        <div class="cam-status" style="margin:8px 0 12px">
-          <span class="dot {status_dot}"></span>
-          <span class="cam-status-label">{"Memindai otomatis…" if not st.session_state.rt_paused else "Dijeda"}</span>
-        </div>
-        </div>''')
-
-        # ── Kamera langsung terbuka ──
-        rt_frame = st.camera_input(
-            "Arahkan kamera ke biji rempah",
-            label_visibility="collapsed",
-            key="rt_cam",
-        )
-
-        result_slot = st.empty()
-
-        def render_into_slot(html: str) -> None:
-            cleaned = "\n".join(line.lstrip() for line in html.split("\n"))
-            result_slot.markdown(cleaned, unsafe_allow_html=True)
-
-        if not model_loaded:
-            render_into_slot(f'<div class="app">{render_error_card("Model belum dimuat.")}</div>')
-            return
-
-        if rt_frame is None:
-            render_into_slot('''
-            <div class="app">
-            <div class="live-result-card">
-              <div class="live-status-row">
-                <span class="live-status-pill scanning"><i class="ti ti-radar"></i> Menunggu jepretan…</span>
-              </div>
-              <p style="font-size:13px;color:var(--text-muted)">Ambil foto di atas untuk mulai deteksi.</p>
-            </div>
-            </div>''')
-            return
-
-        pil_img = Image.open(rt_frame)
-        preds = predict_image(pil_img)
-        top = preds[0]
-
-        # ── logic lock streak (port dari main.js) ──
-        if top["probability"] >= conf_thresh:
-            if st.session_state.lock_candidate == top["class"]:
-                st.session_state.lock_streak += 1
-            else:
-                st.session_state.lock_candidate = top["class"]
-                st.session_state.lock_streak = 1
-        else:
-            st.session_state.lock_candidate = None
-            st.session_state.lock_streak = 0
-
-        locked = st.session_state.lock_streak >= lock_frames
-        streak = min(st.session_state.lock_streak, lock_frames)
-        pct = round(top["probability"] * 100, 1)
-
-        if locked:
-            status, status_text, icon = "locked", f"Terkunci: {top['label']}", "ti-lock"
-        elif streak > 0:
-            status, status_text, icon = "locking", f"Mengunci {top['label']}… ({streak}/{lock_frames})", "ti-lock-open"
-        else:
-            status, status_text, icon = "scanning", "Memindai…", "ti-radar"
-
-        dots = "".join(
-            f'<span class="lock-dot{" filled" if i < streak else ""}"></span>'
-            for i in range(lock_frames)
-        )
-
-        bars = "".join(f'''
-        <div class="prob-row">
-          <span class="prob-rank">{i+1}</span>
-          <span class="prob-name">{p["label"]}</span>
-          <div class="prob-bar-outer"><div class="prob-bar-inner{" top" if i==0 else ""}" style="width:{round(p["probability"]*100,1)}%"></div></div>
-          <span class="prob-pct">{round(p["probability"]*100,1)}%</span>
-        </div>''' for i, p in enumerate(preds))
-
-        render_into_slot(f'''
-        <div class="app">
-        <div class="step-label" style="margin-top:8px">Deteksi Langsung</div>
         <div class="live-result-card">
           <div class="live-status-row">
-            <span class="live-status-pill {status}"><i class="ti {icon}"></i> {status_text}</span>
+            <span class="live-status-pill scanning"><i class="ti ti-radar"></i> Menunggu jepretan…</span>
           </div>
-          <div class="live-top">
-            <span class="live-name">{top["label"]}</span>
-            <span class="live-conf">{pct}%</span>
-          </div>
-          <div class="live-bar-outer"><div class="live-bar-inner" style="width:{pct}%"></div></div>
-          <div class="lock-info-row">
-            <div class="lock-dots">{dots}</div>
-            <span class="lock-info-text">{status_text}</span>
-          </div>
-          <div class="prob-section-title" style="margin:12px 0 8px">Semua kelas (5)</div>
-          <div class="prob-grid">{bars}</div>
+          <p style="font-size:13px;color:var(--text-muted)">Ambil foto di atas untuk mulai deteksi.</p>
         </div>
         </div>''')
+    else:
+        # Hanya jalankan prediksi & update lock-streak kalau ini jepretan BARU
+        # (mencegah re-run halaman lain memicu prediksi ulang / flicker).
+        frame_id = getattr(rt_frame, "file_id", None) or rt_frame.name
+        if frame_id != st.session_state.rt_last_frame_id:
+            st.session_state.rt_last_frame_id = frame_id
 
-    live_fragment()
+            pil_img = Image.open(rt_frame)
+            preds = predict_image(pil_img)
+            top = preds[0]
+
+            # ── logic lock streak ──
+            if top["probability"] >= conf_thresh:
+                if st.session_state.lock_candidate == top["class"]:
+                    st.session_state.lock_streak += 1
+                else:
+                    st.session_state.lock_candidate = top["class"]
+                    st.session_state.lock_streak = 1
+            else:
+                st.session_state.lock_candidate = None
+                st.session_state.lock_streak = 0
+
+            st.session_state.rt_last_preds = preds
+
+        preds = st.session_state.get("rt_last_preds")
+        if preds:
+            top = preds[0]
+            locked = st.session_state.lock_streak >= lock_frames
+            streak = min(st.session_state.lock_streak, lock_frames)
+            pct = round(top["probability"] * 100, 1)
+
+            if locked:
+                status, status_text, icon = "locked", f"Terkunci: {top['label']}", "ti-lock"
+            elif streak > 0:
+                status, status_text, icon = "locking", f"Mengunci {top['label']}… ({streak}/{lock_frames})", "ti-lock-open"
+            else:
+                status, status_text, icon = "scanning", "Belum terdeteksi kuat, coba lagi", "ti-radar"
+
+            dots = "".join(
+                f'<span class="lock-dot{" filled" if i < streak else ""}"></span>'
+                for i in range(lock_frames)
+            )
+
+            bars = "".join(f'''
+            <div class="prob-row">
+              <span class="prob-rank">{i+1}</span>
+              <span class="prob-name">{p["label"]}</span>
+              <div class="prob-bar-outer"><div class="prob-bar-inner{" top" if i==0 else ""}" style="width:{round(p["probability"]*100,1)}%"></div></div>
+              <span class="prob-pct">{round(p["probability"]*100,1)}%</span>
+            </div>''' for i, p in enumerate(preds))
+
+            render_into_slot(f'''
+            <div class="app">
+            <div class="step-label" style="margin-top:8px">Deteksi Langsung</div>
+            <div class="live-result-card">
+              <div class="live-status-row">
+                <span class="live-status-pill {status}"><i class="ti {icon}"></i> {status_text}</span>
+              </div>
+              <div class="live-top">
+                <span class="live-name">{top["label"]}</span>
+                <span class="live-conf">{pct}%</span>
+              </div>
+              <div class="live-bar-outer"><div class="live-bar-inner" style="width:{pct}%"></div></div>
+              <div class="lock-info-row">
+                <div class="lock-dots">{dots}</div>
+                <span class="lock-info-text">{status_text}</span>
+              </div>
+              <div class="prob-section-title" style="margin:12px 0 8px">Semua kelas (5)</div>
+              <div class="prob-grid">{bars}</div>
+            </div>
+            </div>''')
