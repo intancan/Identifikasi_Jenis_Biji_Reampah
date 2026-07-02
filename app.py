@@ -6,22 +6,30 @@ CATATAN KONVERSI DARI FLASK -> STREAMLIT
 -----------------------------------------
 - CSS asli (style.css) disuntikkan APA ADANYA lewat st.markdown, jadi warna,
   font (Sora/Inter), kartu, badge, bar probabilitas, dsb TIDAK diubah.
-- Tab "Upload" & "Ambil Foto" 1:1 secara visual dengan versi Flask/JS asli
-  (drag-drop asli diganti st.file_uploader bawaan Streamlit — Streamlit tidak
-  mendukung drag-drop kustom seperti JS asli, tapi kartu hasil & style tetap sama).
-- Tab "Real-time" sekarang BENAR-BENAR live (beda dari tab "Ambil Foto" yang
-  cuma satu jepretan manual): pakai streamlit-webrtc, jadi video kamera
-  mengalir terus-menerus di browser (WebRTC), tidak perlu klik jepret berulang.
-  Inference (predict_image) dijalankan di background thread dalam callback
-  video (throttled ~1.2 detik sekali biar tidak membebani), hasilnya
-  disimpan di video processor. Panel hasil di bawah video di-refresh
-  berkala lewat st.fragment(run_every=...), TAPI video-nya sendiri berada
-  DI LUAR fragment itu sehingga widget kamera tidak pernah di-reinit / tidak
-  berkedip — yang berkedip cuma teks hasil & bar probabilitas yang memang
-  seharusnya berubah live. Logic kunci-deteksi (lock streak, threshold
-  confidence) tetap dipertahankan di dalam video processor, hasilnya
-  dirender pakai CSS/kelas SpiceLens asli (live-result-card, lock-dots,
-  status pill, dst).
+- Tab "Upload" 1:1 secara visual dengan versi Flask/JS asli (drag-drop asli
+  diganti st.file_uploader bawaan Streamlit — Streamlit tidak mendukung
+  drag-drop kustom seperti JS asli, tapi kartu hasil & style tetap sama).
+- Tab "Ambil Foto" terpisah sudah dihapus — kamera live di tab "Real-time"
+  sudah mencakup fungsi jepret foto, jadi tidak perlu tab duplikat.
+- Tab "Real-time" PAKAI st.camera_input BAWAAN STREAMLIT (bukan streamlit-webrtc
+  lagi). Alasannya: st.camera_input membuka kamera browser dan langsung
+  menampilkan pratinjau video yang live di sisi browser (tanpa perlu klik
+  "start"/"connect" seperti WebRTC, dan tanpa risiko gagal negosiasi koneksi
+  WebRTC di jaringan yang rewel) — jauh lebih stabil.
+  Garis scan hijau yang bergerak naik-turun (efek "memindai") SEKARANG MURNI
+  CSS: sebuah ::after pseudo-element yang ditempel lewat selector
+  `div[data-testid="stCameraInput"]` dan dianimasikan dengan @keyframes
+  (translate posisi `top` naik-turun). Ini tidak butuh OpenCV/av/threading
+  sama sekali — tidak ada frame yang digambar manual, cukup CSS di atas
+  pratinjau kamera bawaan Streamlit. Label "SCANNING" di pojok kiri-atas juga
+  digambar lewat ::before (CSS), meniru gaya `.cam-overlay-badge` asli.
+  Karena st.camera_input hanya mengirim gambar ke Python SETELAH tombol
+  jepret ditekan (bukan streaming frame terus-menerus seperti WebRTC), tidak
+  ada lagi logic "lock streak / kunci N-frame-berturut-turut" ataupun
+  pengaturan ambang kepercayaan — hasil ditampilkan langsung sesaat setelah
+  satu jepretan diproses, menampilkan kelas teratas apa adanya. Semua ini
+  tetap dirender pakai CSS/kelas SpiceLens asli (live-result-card, status
+  pill, dst).
 - Semua output HTML dirender lewat helper md()/render_into_slot() yang menghapus
   indentasi tiap baris sebelum dikirim ke st.markdown — mencegah Streamlit salah
   mengira blok HTML sebagai code block (markdown menganggap baris berindentasi
@@ -30,7 +38,7 @@ CATATAN KONVERSI DARI FLASK -> STREAMLIT
 - Fitur "Tips Penggunaan" sudah dihapus sepenuhnya (CSS, data, dan rendering).
 
 Instalasi tambahan yang dibutuhkan:
-    pip install streamlit tensorflow pillow numpy streamlit-webrtc av
+    pip install streamlit tensorflow pillow numpy
 
 Menjalankan:
     streamlit run app.py
@@ -39,9 +47,7 @@ Menjalankan:
 from __future__ import annotations
 
 import io
-import time
 import base64
-import threading
 from pathlib import Path
 
 import numpy as np
@@ -55,13 +61,6 @@ try:
     TF_AVAILABLE = True
 except ImportError:
     TF_AVAILABLE = False
-
-# ── streamlit-webrtc (kamera live untuk tab Real-time) ──
-try:
-    from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, WebRtcMode
-    WEBRTC_AVAILABLE = True
-except ImportError:
-    WEBRTC_AVAILABLE = False
 
 # ── Config ──────────────────────────────────────
 BASE_DIR   = Path(__file__).parent
@@ -197,61 +196,6 @@ def render_error_card(msg: str) -> str:
       <div class="error-icon">⚠️</div>
       <p>{msg}</p>
     </div>'''
-
-
-# ══════════════════════════════════════════════════
-# Video processor untuk tab Real-time (streamlit-webrtc)
-# Video mengalir terus di browser; recv() dipanggil di thread
-# terpisah untuk tiap frame. Inference di-throttle (bukan tiap
-# frame) supaya ringan, dan HANYA menyimpan hasil ke state
-# internal — tidak pernah menggambar ulang / me-restart video,
-# jadi tidak ada blink. Panel Streamlit di luar cuma membaca
-# state ini secara berkala.
-# ══════════════════════════════════════════════════
-if WEBRTC_AVAILABLE:
-    import av
-
-    class SpiceVideoProcessor(VideoProcessorBase):
-        def __init__(self) -> None:
-            self.lock = threading.Lock()
-            self.latest_preds: list[dict] | None = None
-            self.lock_streak = 0
-            self.lock_candidate: str | None = None
-            self.last_infer_time = 0.0
-            self.infer_interval = 1.2       # detik antar-inferensi
-            self.conf_thresh = 0.55         # threshold tetap
-            self.lock_frames_needed = 2     # bisa diubah dari UI
-
-        def recv(self, frame: "av.VideoFrame") -> "av.VideoFrame":
-            now = time.time()
-            if model_loaded and (now - self.last_infer_time) >= self.infer_interval:
-                self.last_infer_time = now
-                try:
-                    img_bgr = frame.to_ndarray(format="bgr24")
-                    img_rgb = img_bgr[:, :, ::-1]
-                    pil_img = Image.fromarray(img_rgb)
-                    preds = predict_image(pil_img)
-                    top = preds[0]
-                    with self.lock:
-                        if top["probability"] >= self.conf_thresh:
-                            if self.lock_candidate == top["class"]:
-                                self.lock_streak += 1
-                            else:
-                                self.lock_candidate = top["class"]
-                                self.lock_streak = 1
-                        else:
-                            self.lock_candidate = None
-                            self.lock_streak = 0
-                        self.latest_preds = preds
-                except Exception:
-                    pass
-            # Video asli dikembalikan apa adanya — tidak ada overlay/re-render,
-            # jadi preview kamera tetap mulus.
-            return frame
-
-        def get_snapshot(self):
-            with self.lock:
-                return self.latest_preds, self.lock_streak, self.lock_candidate
 
 
 # ══════════════════════════════════════════════════
@@ -1023,7 +967,7 @@ body {
 }
 
 /* ════════════════════════════════════════════════
-   LIVE — pengaturan kunci deteksi
+   LIVE — pengaturan ambang deteksi
    ════════════════════════════════════════════════ */
 .live-settings {
   background: var(--surface-card);
@@ -1163,6 +1107,55 @@ div[data-testid="stFileUploader"] {margin-bottom: 1.25rem;}
   border: none;
 }
 .stCameraInput button:hover, .stButton button:hover {background: var(--green-800);}
+
+/* ════════════════════════════════════════════════
+   GARIS SCAN — murni CSS di atas pratinjau kamera
+   bawaan Streamlit (st.camera_input), gantinya efek
+   canvas/OpenCV dari versi WebRTC sebelumnya.
+   ════════════════════════════════════════════════ */
+div[data-testid="stCameraInput"] {
+  position: relative;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+/* label "SCANNING" pojok kiri-atas, meniru .cam-overlay-badge asli */
+div[data-testid="stCameraInput"]::before {
+  content: "● SCANNING";
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background: rgba(0,0,0,.55);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  padding: 3px 9px;
+  border-radius: 20px;
+  z-index: 6;
+  pointer-events: none;
+}
+
+/* garis hijau yang bergerak naik-turun di atas pratinjau video */
+div[data-testid="stCameraInput"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 8%;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, rgba(76,175,120,.95), transparent);
+  box-shadow: 0 0 14px 2px rgba(76,175,120,.55);
+  z-index: 6;
+  pointer-events: none;
+  animation: spicelensScanLine 2.4s ease-in-out infinite;
+}
+
+@keyframes spicelensScanLine {
+  0%   { top: 8%; }
+  50%  { top: 68%; }
+  100% { top: 8%; }
+}
 """
 
 md(f"<style>{ORIGINAL_CSS}{EXTRA_CSS}</style>")
@@ -1192,7 +1185,7 @@ md(f'''
 </div>
 ''')
 
-tab_upload, tab_snap, tab_live = st.tabs(["📤  Upload", "📷  Ambil Foto", "🎥  Real-time"])
+tab_upload, tab_live = st.tabs(["📤  Upload", "🎥  Real-time"])
 
 # ══════════════════════════════════════════════════
 # TAB 1 — UPLOAD  (step 01 / 02 seperti index.html)
@@ -1233,161 +1226,93 @@ with tab_upload:
             md(f'<div class="app">{render_result_card(preds, data_url)}</div>')
 
 # ══════════════════════════════════════════════════
-# TAB 2 — AMBIL FOTO  (snapshot kamera, satu jepretan)
-# ══════════════════════════════════════════════════
-with tab_snap:
-    md('<div class="app"><div class="step-label">02 — Ambil Foto dengan Kamera</div></div>')
-
-    photo = st.camera_input("Ambil foto biji rempah", key="snap_cam", label_visibility="collapsed")
-
-    if photo is not None:
-        pil_img = Image.open(photo)
-        data_url = img_to_data_url(pil_img)
-
-        md('<div class="app"><div class="step-label">Hasil Identifikasi Foto</div></div>')
-
-        if not model_loaded:
-            md(f'<div class="app">{render_error_card("Model belum dimuat.")}</div>')
-        else:
-            with st.spinner("Mengidentifikasi jenis biji rempah…"):
-                preds = predict_image(pil_img)
-            md(f'<div class="app">{render_result_card(preds, data_url, "Probabilitas 5 Kelas")}</div>')
-
-# ══════════════════════════════════════════════════
-# TAB 3 — REAL-TIME
-# Beda dari tab "Ambil Foto": di sini kamera BENAR-BENAR live/streaming
-# (WebRTC), tidak perlu klik jepret berulang-ulang. Video ditampilkan
-# lewat webrtc_streamer() SATU KALI di luar fragment, jadi widgetnya
-# tidak pernah re-init → tidak berkedip. Inference berjalan otomatis di
-# background (di dalam SpiceVideoProcessor.recv), dan panel hasil di
-# bawah video di-refresh berkala lewat st.fragment(run_every=...) —
-# hanya teks/bar hasil yang update, video-nya diam & mulus.
+# TAB 2 — REAL-TIME
+# Sekarang pakai st.camera_input bawaan Streamlit: kamera browser
+# terbuka langsung dengan pratinjau live (tidak perlu tombol
+# "start"/"connect" seperti WebRTC), jauh lebih stabil di jaringan
+# yang tidak ramah ke koneksi WebRTC. Efek "garis scan" naik-turun
+# sepenuhnya CSS (::after + @keyframes, lihat EXTRA_CSS di atas),
+# ditempel di atas widget kamera lewat selector
+# `div[data-testid="stCameraInput"]` — tidak ada canvas/OpenCV yang
+# digambar manual per-frame lagi.
+# Karena st.camera_input mengirim gambar ke Python hanya SETELAH
+# tombol jepret ditekan (bukan streaming frame terus-menerus), tidak
+# ada lagi logic "kunci N-frame-berturut-turut" — begitu satu foto
+# terkirim, model langsung memprediksi dan hasil kelas teratas
+# langsung ditampilkan (tanpa pengaturan ambang kepercayaan).
 # ══════════════════════════════════════════════════
 with tab_live:
-    md('<div class="app"><div class="step-label">03 — Deteksi Real-time (Live)</div></div>')
+    md('<div class="app"><div class="step-label">02 — Deteksi Real-time (Kamera Langsung)</div></div>')
 
-    if not WEBRTC_AVAILABLE:
-        md(f'''<div class="app">{render_error_card(
-            "Paket streamlit-webrtc belum terpasang. Jalankan: "
-            "pip install streamlit-webrtc av"
-        )}</div>''')
+    if not model_loaded:
+        md(f'<div class="app">{render_error_card("Model belum dimuat.")}</div>')
+
+    live_photo = st.camera_input(
+        "Kamera live — jepret untuk memindai", key="live_cam", label_visibility="collapsed",
+    )
+
+    # Garis scan hanya bergerak naik-turun selagi belum ada foto yang
+    # diambil (pratinjau kamera masih live). Begitu foto sudah dijepret,
+    # animasinya dihentikan (dan garis/badge disembunyikan) karena yang
+    # tampil di widget sudah gambar diam, bukan video live lagi.
+    if live_photo is not None:
+        md('''
+        <style>
+        div[data-testid="stCameraInput"]::after { animation: none !important; opacity: 0; }
+        div[data-testid="stCameraInput"]::before { content: "● TERTANGKAP"; opacity: .85; }
+        </style>''')
+
+    result_slot = st.empty()
+
+    def render_into_slot(html: str) -> None:
+        cleaned = "\n".join(line.lstrip() for line in html.split("\n"))
+        result_slot.markdown(cleaned, unsafe_allow_html=True)
+
+    if live_photo is None:
+        render_into_slot('''
+        <div class="app">
+        <div class="live-result-card">
+          <div class="live-status-row">
+            <span class="live-status-pill scanning"><i class="ti ti-radar"></i> Menunggu jepretan…</span>
+          </div>
+          <p style="font-size:13px;color:var(--text-muted)">Arahkan kamera ke biji rempah, lalu klik tombol jepret untuk memindai.</p>
+        </div>
+        </div>''')
+    elif not model_loaded:
+        render_into_slot(f'<div class="app">{render_error_card("Model belum dimuat.")}</div>')
     else:
-        DEFAULT_CONF_THRESH_PCT = 55  # threshold tetap
+        pil_img = Image.open(live_photo)
+        with st.spinner("Menganalisis…"):
+            preds = predict_image(pil_img)
 
-        md('<div class="app"><div class="live-settings">')
-        md('<div class="live-settings-label"><i class="ti ti-lock"></i> Waktu Kunci Deteksi</div>')
-        lock_frames = st.radio(
-            "Interval kunci", [2, 3], horizontal=True,
-            format_func=lambda x: f"{x} deteksi berturut-turut", key="lock_frames_live",
-            label_visibility="collapsed",
-        )
-        conf_thresh_pct = DEFAULT_CONF_THRESH_PCT
-        md(
-            f'<div class="live-settings-hint">Kamera memindai otomatis setiap ~1,2 detik. '
-            f'Hasil dikunci kalau prediksi sama selama <strong>{lock_frames}</strong> kali '
-            f'berturut-turut dan kepercayaan &ge; <strong>{conf_thresh_pct}%</strong>. '
-            f'Cukup arahkan kamera — tidak perlu menekan tombol jepret.</div>'
-        )
-        md('</div></div>')
+        top = preds[0]
+        pct = round(top["probability"] * 100, 1)
+        status, status_text, icon = "locked", f"Teridentifikasi: {top['label']}", "ti-lock"
 
-        if not model_loaded:
-            md(f'<div class="app">{render_error_card("Model belum dimuat.")}</div>')
+        bars = "".join(f'''
+        <div class="prob-row">
+          <span class="prob-rank">{i+1}</span>
+          <span class="prob-name">{p["label"]}</span>
+          <div class="prob-bar-outer"><div class="prob-bar-inner{" top" if i==0 else ""}" style="width:{round(p["probability"]*100,1)}%"></div></div>
+          <span class="prob-pct">{round(p["probability"]*100,1)}%</span>
+        </div>''' for i, p in enumerate(preds))
 
-        # ── Video live, dirender SEKALI, di luar fragment ──
-        ctx = webrtc_streamer(
-            key="spice-live-cam",
-            mode=WebRtcMode.SENDRECV,
-            video_processor_factory=SpiceVideoProcessor,
-            media_stream_constraints={"video": True, "audio": False},
-            async_processing=True,
-        )
-
-        result_slot = st.empty()
-
-        def render_into_slot(html: str) -> None:
-            cleaned = "\n".join(line.lstrip() for line in html.split("\n"))
-            result_slot.markdown(cleaned, unsafe_allow_html=True)
-
-        # ── Panel hasil: HANYA bagian ini yang auto-refresh ──
-        @st.fragment(run_every="1s")
-        def live_result_fragment():
-            if not ctx.state.playing or ctx.video_processor is None:
-                render_into_slot('''
-                <div class="app">
-                <div class="live-result-card">
-                  <div class="live-status-row">
-                    <span class="live-status-pill scanning"><i class="ti ti-camera"></i> Kamera belum aktif</span>
-                  </div>
-                  <p style="font-size:13px;color:var(--text-muted)">Klik START di atas untuk mulai deteksi live.</p>
-                </div>
-                </div>''')
-                return
-
-            # sinkronkan setting UI (lock_frames) ke processor yang jalan di background
-            ctx.video_processor.lock_frames_needed = lock_frames
-            ctx.video_processor.conf_thresh = conf_thresh_pct / 100
-
-            preds, lock_streak, _ = ctx.video_processor.get_snapshot()
-
-            if not preds:
-                render_into_slot('''
-                <div class="app">
-                <div class="live-result-card">
-                  <div class="live-status-row">
-                    <span class="live-status-pill scanning"><i class="ti ti-radar"></i> Memindai…</span>
-                  </div>
-                  <p style="font-size:13px;color:var(--text-muted)">Arahkan kamera ke biji rempah.</p>
-                </div>
-                </div>''')
-                return
-
-            top = preds[0]
-            locked = lock_streak >= lock_frames
-            streak = min(lock_streak, lock_frames)
-            pct = round(top["probability"] * 100, 1)
-
-            if locked:
-                status, status_text, icon = "locked", f"Terkunci: {top['label']}", "ti-lock"
-            elif streak > 0:
-                status, status_text, icon = "locking", f"Mengunci {top['label']}… ({streak}/{lock_frames})", "ti-lock-open"
-            else:
-                status, status_text, icon = "scanning", "Memindai…", "ti-radar"
-
-            dots = "".join(
-                f'<span class="lock-dot{" filled" if i < streak else ""}"></span>'
-                for i in range(lock_frames)
-            )
-
-            bars = "".join(f'''
-            <div class="prob-row">
-              <span class="prob-rank">{i+1}</span>
-              <span class="prob-name">{p["label"]}</span>
-              <div class="prob-bar-outer"><div class="prob-bar-inner{" top" if i==0 else ""}" style="width:{round(p["probability"]*100,1)}%"></div></div>
-              <span class="prob-pct">{round(p["probability"]*100,1)}%</span>
-            </div>''' for i, p in enumerate(preds))
-
-            render_into_slot(f'''
-            <div class="app">
-            <div class="cam-status" style="margin:0 0 10px">
-              <span class="dot live"></span>
-              <span class="cam-status-label">Live — memindai otomatis</span>
-            </div>
-            <div class="live-result-card">
-              <div class="live-status-row">
-                <span class="live-status-pill {status}"><i class="ti {icon}"></i> {status_text}</span>
-              </div>
-              <div class="live-top">
-                <span class="live-name">{top["label"]}</span>
-                <span class="live-conf">{pct}%</span>
-              </div>
-              <div class="live-bar-outer"><div class="live-bar-inner" style="width:{pct}%"></div></div>
-              <div class="lock-info-row">
-                <div class="lock-dots">{dots}</div>
-                <span class="lock-info-text">{status_text}</span>
-              </div>
-              <div class="prob-section-title" style="margin:12px 0 8px">Semua kelas (5)</div>
-              <div class="prob-grid">{bars}</div>
-            </div>
-            </div>''')
-
-        live_result_fragment()
+        render_into_slot(f'''
+        <div class="app">
+        <div class="cam-status" style="margin:0 0 10px">
+          <span class="dot live"></span>
+          <span class="cam-status-label">Hasil jepretan terbaru</span>
+        </div>
+        <div class="live-result-card">
+          <div class="live-status-row">
+            <span class="live-status-pill {status}"><i class="ti {icon}"></i> {status_text}</span>
+          </div>
+          <div class="live-top">
+            <span class="live-name">{top["label"]}</span>
+            <span class="live-conf">{pct}%</span>
+          </div>
+          <div class="live-bar-outer"><div class="live-bar-inner" style="width:{pct}%"></div></div>
+          <div class="prob-section-title" style="margin:12px 0 8px">Semua kelas (5)</div>
+          <div class="prob-grid">{bars}</div>
+        </div>
+        </div>''')
