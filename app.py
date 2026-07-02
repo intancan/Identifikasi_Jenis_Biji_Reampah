@@ -9,12 +9,16 @@ CATATAN KONVERSI DARI FLASK -> STREAMLIT
 - Tab "Upload" & "Ambil Foto" 1:1 secara visual dengan versi Flask/JS asli
   (drag-drop asli diganti st.file_uploader bawaan Streamlit — Streamlit tidak
   mendukung drag-drop kustom seperti JS asli, tapi kartu hasil & style tetap sama).
-- Tab "Real-time" langsung membuka kamera lewat st.camera_input() dan auto-refresh
-  pakai time.sleep() + st.rerun() (tanpa streamlit-webrtc/av — lebih ringan & tidak
-  rawan konflik versi saat deploy). Setiap kali ada jepretan baru, otomatis dianalisis
-  dan logic kunci-deteksi (lock streak, threshold confidence) dari main.js asli tetap
-  dipertahankan, hasilnya dirender pakai CSS/kelas SpiceLens asli (live-result-card,
-  lock-dots, status pill, dst).
+- Tab "Real-time" langsung membuka kamera lewat st.camera_input(), dibungkus
+  st.fragment() supaya HANYA bagian real-time yang auto-refresh/berkedip —
+  tab lain & sisa halaman tetap diam (tidak full-page rerun). Logic kunci-deteksi
+  (lock streak, threshold confidence) dari main.js asli tetap dipertahankan,
+  hasilnya dirender pakai CSS/kelas SpiceLens asli (live-result-card, lock-dots,
+  status pill, dst).
+- Semua output HTML dirender lewat helper md()/render_into_slot() yang menghapus
+  indentasi tiap baris sebelum dikirim ke st.markdown — mencegah Streamlit salah
+  mengira blok HTML sebagai code block (markdown menganggap baris berindentasi
+  >=4 spasi sebagai kode, makanya <div> sempat muncul sebagai teks mentah).
 - Semua logic model (load_model, preprocess, predict) identik dengan app.py Flask lama.
 
 Instalasi tambahan yang dibutuhkan (selain flask sebelumnya, sekarang tidak perlu):
@@ -99,6 +103,13 @@ CLASSES = {
         ],
     },
 }
+
+def md(html: str) -> None:
+    """Wrapper st.markdown yang menghapus indentasi di awal tiap baris,
+    supaya Streamlit tidak salah mengira blok HTML sebagai code block
+    (markdown menganggap baris berindentasi >=4 spasi sebagai kode)."""
+    cleaned = "\n".join(line.lstrip() for line in html.split("\n"))
+    st.markdown(cleaned, unsafe_allow_html=True)
 
 st.set_page_config(
     page_title="SpiceLens — Klasifikasi Biji Rempah",
@@ -1329,7 +1340,7 @@ div[data-testid="stFileUploader"] {margin-bottom: 1.25rem;}
 .stCameraInput button:hover, .stButton button:hover {background: var(--green-800);}
 """
 
-st.markdown(f"<style>{ORIGINAL_CSS}{EXTRA_CSS}</style>", unsafe_allow_html=True)
+md(f"<style>{ORIGINAL_CSS}{EXTRA_CSS}</style>")
 
 # ══════════════════════════════════════════════════
 # HEADER (identik dengan index.html asli)
@@ -1343,7 +1354,7 @@ if not model_loaded:
       di folder <code>model/</code>
     </div>'''
 
-st.markdown(f'''
+md(f'''
 <div class="app">
   <div class="header">
     <div class="logo-row">
@@ -1354,7 +1365,7 @@ st.markdown(f'''
     {warning_html}
   </div>
 </div>
-''', unsafe_allow_html=True)
+''')
 
 tab_upload, tab_snap, tab_live = st.tabs(["📤  Upload", "📷  Ambil Foto", "🎥  Real-time"])
 
@@ -1362,7 +1373,7 @@ tab_upload, tab_snap, tab_live = st.tabs(["📤  Upload", "📷  Ambil Foto", "�
 # TAB 1 — UPLOAD  (step 01 / 02 seperti index.html)
 # ══════════════════════════════════════════════════
 with tab_upload:
-    st.markdown('<div class="app"><div class="step-label">01 — Upload Gambar</div></div>', unsafe_allow_html=True)
+    md('<div class="app"><div class="step-label">01 — Upload Gambar</div></div>')
 
     uploaded = st.file_uploader(
         "Seret & Lepas Gambar Biji Rempah (JPG · PNG · WEBP · Maks 16MB)",
@@ -1374,7 +1385,7 @@ with tab_upload:
         pil_img = Image.open(uploaded)
         data_url = img_to_data_url(pil_img)
 
-        st.markdown(f'''
+        md(f'''
         <div class="app">
         <div class="preview-card visible">
           <div class="preview-inner">
@@ -1385,22 +1396,22 @@ with tab_upload:
             </div>
           </div>
         </div>
-        </div>''', unsafe_allow_html=True)
+        </div>''')
 
-        st.markdown('<div class="app"><div class="step-label" style="margin-top:8px">02 — Hasil Identifikasi</div></div>', unsafe_allow_html=True)
+        md('<div class="app"><div class="step-label" style="margin-top:8px">02 — Hasil Identifikasi</div></div>')
 
         if not model_loaded:
-            st.markdown(f'<div class="app">{render_error_card("Model belum dimuat. Letakkan mobilenetv2_bijirempah.keras di folder model/.")}</div>', unsafe_allow_html=True)
+            md(f'<div class="app">{render_error_card("Model belum dimuat. Letakkan mobilenetv2_bijirempah.keras di folder model/.")}</div>')
         else:
             with st.spinner("Mengidentifikasi jenis biji rempah…"):
                 preds = predict_image(pil_img)
-            st.markdown(f'<div class="app">{render_result_card(preds, data_url)}</div>', unsafe_allow_html=True)
+            md(f'<div class="app">{render_result_card(preds, data_url)}</div>')
 
 # ══════════════════════════════════════════════════
 # TAB 2 — AMBIL FOTO  (snapshot kamera, satu jepretan)
 # ══════════════════════════════════════════════════
 with tab_snap:
-    st.markdown('<div class="app"><div class="step-label">02 — Ambil Foto dengan Kamera</div></div>', unsafe_allow_html=True)
+    md('<div class="app"><div class="step-label">02 — Ambil Foto dengan Kamera</div></div>')
 
     photo = st.camera_input("Ambil foto biji rempah", key="snap_cam", label_visibility="collapsed")
 
@@ -1408,26 +1419,24 @@ with tab_snap:
         pil_img = Image.open(photo)
         data_url = img_to_data_url(pil_img)
 
-        st.markdown('<div class="app"><div class="step-label">Hasil Identifikasi Foto</div></div>', unsafe_allow_html=True)
+        md('<div class="app"><div class="step-label">Hasil Identifikasi Foto</div></div>')
 
         if not model_loaded:
-            st.markdown(f'<div class="app">{render_error_card("Model belum dimuat.")}</div>', unsafe_allow_html=True)
+            md(f'<div class="app">{render_error_card("Model belum dimuat.")}</div>')
         else:
             with st.spinner("Mengidentifikasi jenis biji rempah…"):
                 preds = predict_image(pil_img)
-            st.markdown(
-                f'<div class="app">{render_result_card(preds, data_url, "Probabilitas 5 Kelas")}</div>',
-                unsafe_allow_html=True,
-            )
+            md(f'<div class="app">{render_result_card(preds, data_url, "Probabilitas 5 Kelas")}</div>')
 
 # ══════════════════════════════════════════════════
 # TAB 3 — REAL-TIME
-# Kamera langsung terbuka (st.camera_input) + auto-refresh
-# via time.sleep()/st.rerun(). Tanpa streamlit-webrtc/av.
+# Kamera langsung terbuka (st.camera_input). Auto-refresh
+# dibungkus st.fragment supaya HANYA bagian real-time ini
+# yang berkedip/refresh — tab lain & sisa halaman diam.
 # Logic lock/countdown & tampilan tetap dari main.js + CSS asli.
 # ══════════════════════════════════════════════════
 with tab_live:
-    st.markdown('<div class="app"><div class="step-label">03 — Deteksi Real-time</div></div>', unsafe_allow_html=True)
+    md('<div class="app"><div class="step-label">03 — Deteksi Real-time</div></div>')
 
     # ── state ──
     for k, v in {
@@ -1442,11 +1451,8 @@ with tab_live:
     # ── Pengaturan kunci deteksi (sama seperti panel-live asli) ──
     DEFAULT_CONF_THRESH_PCT = 55  # threshold tetap, tidak lagi diatur lewat slider
 
-    st.markdown('<div class="app"><div class="live-settings">', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="live-settings-label"><i class="ti ti-lock"></i> Waktu Kunci Deteksi</div>',
-        unsafe_allow_html=True,
-    )
+    md('<div class="app"><div class="live-settings">')
+    md('<div class="live-settings-label"><i class="ti ti-lock"></i> Waktu Kunci Deteksi</div>')
     lock_frames = st.radio(
         "Interval kunci", [2, 3], horizontal=True,
         format_func=lambda x: f"{x} deteksi", key="lock_frames",
@@ -1454,13 +1460,12 @@ with tab_live:
     )
     conf_thresh_pct = DEFAULT_CONF_THRESH_PCT
     conf_thresh = conf_thresh_pct / 100
-    st.markdown(
+    md(
         f'<div class="live-settings-hint">Hasil dikunci hanya jika prediksi sama selama '
         f'<strong>{lock_frames}</strong> deteksi berturut-turut dan kepercayaan &ge; '
-        f'<strong>{conf_thresh_pct}%</strong></div>',
-        unsafe_allow_html=True,
+        f'<strong>{conf_thresh_pct}%</strong></div>'
     )
-    st.markdown('</div></div>', unsafe_allow_html=True)
+    md('</div></div>')
 
     # ── Kontrol pause/resume (kamera tetap langsung terbuka) ──
     ctrl_col1, ctrl_col2, _ = st.columns([1, 1, 2])
@@ -1473,27 +1478,47 @@ with tab_live:
             st.session_state.rt_paused = False
             st.rerun()
 
-    status_dot = "live" if not st.session_state.rt_paused else ""
-    st.markdown(f'''
-    <div class="app">
-    <div class="cam-status" style="margin:8px 0 12px">
-      <span class="dot {status_dot}"></span>
-      <span class="cam-status-label">{"Memindai otomatis…" if not st.session_state.rt_paused else "Dijeda"}</span>
-    </div>
-    </div>''', unsafe_allow_html=True)
+    # ── Fragment: hanya blok ini yang auto-refresh, bukan seluruh app ──
+    @st.fragment(run_every=None if st.session_state.rt_paused else f"{st.session_state.rt_interval}s")
+    def live_fragment():
+        status_dot = "live" if not st.session_state.rt_paused else ""
+        md(f'''
+        <div class="app">
+        <div class="cam-status" style="margin:8px 0 12px">
+          <span class="dot {status_dot}"></span>
+          <span class="cam-status-label">{"Memindai otomatis…" if not st.session_state.rt_paused else "Dijeda"}</span>
+        </div>
+        </div>''')
 
-    # ── Kamera langsung terbuka ──
-    rt_frame = st.camera_input(
-        "Arahkan kamera ke biji rempah",
-        label_visibility="collapsed",
-        key="rt_cam",
-    )
+        # ── Kamera langsung terbuka ──
+        rt_frame = st.camera_input(
+            "Arahkan kamera ke biji rempah",
+            label_visibility="collapsed",
+            key="rt_cam",
+        )
 
-    result_slot = st.empty()
+        result_slot = st.empty()
 
-    if not model_loaded:
-        result_slot.markdown(f'<div class="app">{render_error_card("Model belum dimuat.")}</div>', unsafe_allow_html=True)
-    elif rt_frame is not None:
+        def render_into_slot(html: str) -> None:
+            cleaned = "\n".join(line.lstrip() for line in html.split("\n"))
+            result_slot.markdown(cleaned, unsafe_allow_html=True)
+
+        if not model_loaded:
+            render_into_slot(f'<div class="app">{render_error_card("Model belum dimuat.")}</div>')
+            return
+
+        if rt_frame is None:
+            render_into_slot('''
+            <div class="app">
+            <div class="live-result-card">
+              <div class="live-status-row">
+                <span class="live-status-pill scanning"><i class="ti ti-radar"></i> Menunggu jepretan…</span>
+              </div>
+              <p style="font-size:13px;color:var(--text-muted)">Ambil foto di atas untuk mulai deteksi.</p>
+            </div>
+            </div>''')
+            return
+
         pil_img = Image.open(rt_frame)
         preds = predict_image(pil_img)
         top = preds[0]
@@ -1533,7 +1558,7 @@ with tab_live:
           <span class="prob-pct">{round(p["probability"]*100,1)}%</span>
         </div>''' for i, p in enumerate(preds))
 
-        result_slot.markdown(f'''
+        render_into_slot(f'''
         <div class="app">
         <div class="step-label" style="margin-top:8px">Deteksi Langsung</div>
         <div class="live-result-card">
@@ -1552,19 +1577,6 @@ with tab_live:
           <div class="prob-section-title" style="margin:12px 0 8px">Semua kelas (5)</div>
           <div class="prob-grid">{bars}</div>
         </div>
-        </div>''', unsafe_allow_html=True)
-    else:
-        result_slot.markdown('''
-        <div class="app">
-        <div class="live-result-card">
-          <div class="live-status-row">
-            <span class="live-status-pill scanning"><i class="ti ti-radar"></i> Menunggu jepretan…</span>
-          </div>
-          <p style="font-size:13px;color:var(--text-muted)">Ambil foto di atas untuk mulai deteksi.</p>
-        </div>
-        </div>''', unsafe_allow_html=True)
+        </div>''')
 
-    # ── auto-refresh (mirror pola BananaLens: sleep + rerun) ──
-    if not st.session_state.rt_paused:
-        time.sleep(st.session_state.rt_interval)
-        st.rerun()
+    live_fragment()
