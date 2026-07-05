@@ -1194,7 +1194,7 @@ with tab_upload:
     md('<div class="app"><div class="step-label">01 — Upload Gambar</div></div>')
 
     uploaded = st.file_uploader(
-        "Seret & Lepas Gambar Biji Rempah (JPG · PNG · WEBP · Maks 16MB)",
+        "Seret & Lepas Gambar Biji Rempah (JPG · PNG · WEBP · Maks 16MB) atau klik tombol dibawah untuk memilih file",
         type=["jpg", "jpeg", "png", "webp"],
         key="upload_file",
     )
@@ -1218,7 +1218,7 @@ with tab_upload:
         </div>''')
 
         md('<div class="app" style="padding-top:0;padding-bottom:0.5rem">')
-        analyze_clicked = st.button("🔍 Analisis Gambar", key="analisis_btn", use_container_width=True)
+        analyze_clicked = st.button("Analisis Gambar", key="analisis_btn", use_container_width=True)
         md('</div>')
 
         # tombol "Analisis" harus ditekan dulu; state disimpan per-file supaya
