@@ -287,21 +287,21 @@ def render_benefit_card(cls: str) -> str:
     masakan = data.get("masakan", [])
     if not kesehatan and not masakan:
         return ""
-
+ 
     kesehatan_html = ""
     if kesehatan:
         items = "".join(f"<li>{p}</li>" for p in kesehatan)
         kesehatan_html = f'''
         <div class="benefit-section-title"><i class="ti ti-heart"></i> Manfaat Kesehatan</div>
         <ul class="benefit-list">{items}</ul>'''
-
+ 
     masakan_html = ""
     if masakan:
         items = "".join(f"<li>{p}</li>" for p in masakan)
         masakan_html = f'''
         <div class="benefit-section-title" style="margin-top:14px"><i class="ti ti-chef-hat"></i> Kegunaan dalam Bumbu Masakan</div>
         <ul class="benefit-list">{items}</ul>'''
-
+ 
     return f'''
     <div class="benefit-card">
       <div class="benefit-card-title"><i class="ti ti-leaf"></i> Manfaat {label}</div>
