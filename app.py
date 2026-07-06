@@ -79,6 +79,82 @@ CLASSES = {
     "pala":     {"name": "Pala",     "latin": "Myristica fragrans"},
 }
 
+# Manfaat biji rempah per kelas — ditampilkan setelah hasil identifikasi.
+# Tiap kelas punya 2 bagian: "kesehatan" (manfaat untuk tubuh) dan
+# "masakan" (kegunaan sebagai bumbu dalam masakan).
+MANFAAT = {
+    "jintan": {
+        "kesehatan": [
+            "Membantu melancarkan pencernaan dan meredakan perut kembung.",
+            "Mengandung antioksidan yang membantu menangkal radikal bebas.",
+            "Membantu sebagai penambah nafsu makan alami.",
+            "Meredakan gejala flu dan batuk ringan.",
+        ],
+        "masakan": [
+            "Bumbu dasar kari, gulai, dan masakan Timur Tengah.",
+            "Disangrai kering untuk memperkuat aroma sebelum dihaluskan.",
+            "Cocok dipadukan dengan ketumbar sebagai bumbu rempah dasar.",
+            "Digunakan sebagai taburan diatas roti atau nasi kebuli.",
+        ],
+    },
+    "kapulaga": {
+        "kesehatan": [
+            "Membantu menyegarkan napas dan menjaga kesehatan mulut.",
+            "Mendukung kesehatan jantung karena mengandung kalium.",
+            "Memiliki sifat anti-inflamasi alami.",
+            "Membantu menurunkan tekanan darah secara alami.",
+        ],
+        "masakan": [
+            "Penambah aroma khas pada rendang, gulai, dan nasi biryani.",
+            "Dihaluskan terlebih dahulu agar aromanya keluar maksimal.",
+            "Bahan utama dalam campuran teh rempah (masala chai).",
+            "Digunakan dalam kue dan minuman hangat khas Timur Tengah.",
+        ],
+    },
+    "kemiri": {
+        "kesehatan": [
+            "Kaya akan lemak sehat yang baik untuk kulit dan rambut.",
+            "Digunakan sebagai pengental alami pada masakan.",
+            "Mengandung mineral seperti magnesium dan fosfor.",
+            "Membantu memberi tekstur creamy pada masakan tanpa santan.",
+        ],
+        "masakan": [
+            "Bumbu wajib pada opor, rendang, dan gulai khas Nusantara.",
+            "Sebagai pengental bumbu dasar.",
+            "Memberi rasa gurih dan tekstur creamy pada saus/sambal.",
+            "Bahan utama sambal kacang dan bumbu pecel.",
+        ],
+    },
+    "ketumbar": {
+        "kesehatan": [
+            "Membantu menurunkan kadar gula darah secara alami.",
+            "Memiliki kandungan vitamin C dan K yang baik untuk imun tubuh.",
+            "Memiliki efek menenangkan pada sistem pencernaan.",
+            "Mengurangi bau amis pada masakan.",
+        ],
+        "masakan": [
+            "Bumbu dasar masakan berbumbu kuning/orange.",
+            "Penambah aroma makanan khas yang kuat.",
+            "Cocok untuk marinasi daging, ikan, dan ayam goreng bumbu.",
+            "Bahan utama bubuk kari dan bumbu soto.",
+        ],
+    },
+    "pala": {
+        "kesehatan": [
+            "Membantu meredakan gangguan pencernaan dan mual.",
+            "Memiliki efek relaksasi yang bisa membantu kualitas tidur.",
+            "Mengandung senyawa antibakteri alami.",
+            "Menambah aroma hangat khas pada masakan dan minuman.",
+        ],
+        "masakan": [
+            "Penyedap khas sup kaki kambing, semur, dan sup krim.",
+            "Memiliki aroma khas yang segar.",
+            "Penambah aroma makanan khas yang kuat.",
+            "Sebagai bahan campuran kue, puding, dan minuman hangat musim dingin.",
+        ],
+    },
+}
+
 
 def md(html: str) -> None:
     """Wrapper st.markdown yang menghapus indentasi di awal tiap baris,
