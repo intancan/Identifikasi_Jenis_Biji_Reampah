@@ -91,14 +91,14 @@ MANFAAT = {
         "kesehatan": [
             "Membantu melancarkan pencernaan dan meredakan perut kembung.",
             "Mengandung antioksidan yang membantu menangkal radikal bebas.",
-            "Membantu sebagai penambah nafsu makan alami.",
-            "Meredakan gejala flu dan batuk ringan.",
+            "Sering dipakai sebagai penambah nafsu makan alami.",
+            "Bermanfaat untuk meredakan gejala flu dan batuk ringan.",
         ],
         "masakan": [
             "Bumbu dasar kari, gulai, dan masakan Timur Tengah.",
             "Disangrai kering untuk memperkuat aroma sebelum dihaluskan.",
             "Cocok dipadukan dengan ketumbar sebagai bumbu rempah dasar.",
-            "Digunakan sebagai taburan diatas roti atau nasi kebuli.",
+            "Sering ditaburkan utuh di atas roti atau nasi kebuli.",
         ],
     },
     "kapulaga": {
@@ -106,11 +106,11 @@ MANFAAT = {
             "Membantu menyegarkan napas dan menjaga kesehatan mulut.",
             "Mendukung kesehatan jantung karena mengandung kalium.",
             "Memiliki sifat anti-inflamasi alami.",
-            "Membantu menurunkan tekanan darah secara alami.",
+            "Dipercaya membantu menurunkan tekanan darah secara alami.",
         ],
         "masakan": [
-            "Penambah aroma khas pada rendang, gulai, dan nasi biryani.",
-            "Dihaluskan terlebih dahulu agar aromanya keluar maksimal.",
+            "Pemberi aroma khas pada rendang, gulai, dan nasi biryani.",
+            "Dimemarkan terlebih dahulu agar aromanya keluar maksimal.",
             "Bahan utama dalam campuran teh rempah (masala chai).",
             "Digunakan dalam kue dan minuman hangat khas Timur Tengah.",
         ],
@@ -118,13 +118,13 @@ MANFAAT = {
     "kemiri": {
         "kesehatan": [
             "Kaya akan lemak sehat yang baik untuk kulit dan rambut.",
-            "Digunakan sebagai pengental alami pada masakan.",
+            "Sering digunakan sebagai pengental alami pada masakan.",
             "Mengandung mineral seperti magnesium dan fosfor.",
             "Membantu memberi tekstur creamy pada masakan tanpa santan.",
         ],
         "masakan": [
             "Bumbu wajib pada opor, rendang, dan gulai khas Nusantara.",
-            "Sebagai pengental bumbu dasar.",
+            "Disangrai lalu dihaluskan sebagai pengental bumbu dasar.",
             "Memberi rasa gurih dan tekstur creamy pada saus/sambal.",
             "Bahan utama sambal kacang dan bumbu pecel.",
         ],
@@ -132,13 +132,13 @@ MANFAAT = {
     "ketumbar": {
         "kesehatan": [
             "Membantu menurunkan kadar gula darah secara alami.",
-            "Memiliki kandungan vitamin C dan K yang baik untuk imun tubuh.",
+            "Kaya vitamin C dan K yang baik untuk imun tubuh.",
             "Memiliki efek menenangkan pada sistem pencernaan.",
-            "Mengurangi bau amis pada masakan.",
+            "Sering dipakai untuk mengurangi bau amis pada masakan.",
         ],
         "masakan": [
-            "Bumbu dasar masakan berbumbu kuning/orange.",
-            "Penambah aroma makanan khas yang kuat.",
+            "Bumbu dasar hampir semua masakan berbumbu kuning/oranye.",
+            "Disangrai kering sebelum dihaluskan agar aroma lebih keluar.",
             "Cocok untuk marinasi daging, ikan, dan ayam goreng bumbu.",
             "Bahan utama bubuk kari dan bumbu soto.",
         ],
@@ -152,12 +152,13 @@ MANFAAT = {
         ],
         "masakan": [
             "Penyedap khas sup kaki kambing, semur, dan sup krim.",
-            "Memiliki aroma khas yang segar.",
-            "Penambah aroma makanan khas yang kuat.",
-            "Sebagai bahan campuran kue, puding, dan minuman hangat musim dingin.",
+            "Diparut langsung ke masakan agar aromanya tetap segar.",
+            "Digunakan dalam jumlah sedikit karena rasanya sangat kuat.",
+            "Bahan campuran kue, puding, dan minuman hangat musim dingin.",
         ],
     },
 }
+
 
 def md(html: str) -> None:
     """Wrapper st.markdown yang menghapus indentasi di awal tiap baris,
@@ -287,21 +288,21 @@ def render_benefit_card(cls: str) -> str:
     masakan = data.get("masakan", [])
     if not kesehatan and not masakan:
         return ""
- 
+
     kesehatan_html = ""
     if kesehatan:
         items = "".join(f"<li>{p}</li>" for p in kesehatan)
         kesehatan_html = f'''
         <div class="benefit-section-title"><i class="ti ti-heart"></i> Manfaat Kesehatan</div>
         <ul class="benefit-list">{items}</ul>'''
- 
+
     masakan_html = ""
     if masakan:
         items = "".join(f"<li>{p}</li>" for p in masakan)
         masakan_html = f'''
         <div class="benefit-section-title" style="margin-top:14px"><i class="ti ti-chef-hat"></i> Kegunaan dalam Bumbu Masakan</div>
         <ul class="benefit-list">{items}</ul>'''
- 
+
     return f'''
     <div class="benefit-card">
       <div class="benefit-card-title"><i class="ti ti-leaf"></i> Manfaat {label}</div>
@@ -1320,11 +1321,12 @@ div[data-testid="stCameraInput"]::after {
   position: relative;
 }
 .benefit-list li::before {
-  content: "🌿";
+  content: "•";
   position: absolute;
-  left: 0;
+  left: 4px;
   top: 0;
-  font-size: 11px;
+  font-size: 14px;
+  color: var(--green-600);
 }
 """
 
