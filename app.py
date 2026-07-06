@@ -35,7 +35,11 @@ CATATAN KONVERSI DARI FLASK -> STREAMLIT
   mengira blok HTML sebagai code block (markdown menganggap baris berindentasi
   >=4 spasi sebagai kode, makanya <div> sempat muncul sebagai teks mentah).
 - Semua logic model (load_model, preprocess, predict) identik dengan app.py Flask lama.
-- Fitur "Tips Penggunaan" sudah dihapus sepenuhnya (CSS, data, dan rendering).
+- Setelah hasil identifikasi (Upload maupun Real-time), ditambahkan kartu
+  "Manfaat Biji Rempah" (render_benefit_card) berisi beberapa poin manfaat
+  sesuai kelas yang terdeteksi. Kartu ini pakai CSS baru (.benefit-card,
+  .benefit-card-title, .benefit-list) yang ditambahkan di EXTRA_CSS, tanpa
+  mengubah ORIGINAL_CSS ataupun bagian lain dari kode.
 
 Instalasi tambahan yang dibutuhkan:
     pip install streamlit tensorflow pillow numpy
@@ -87,14 +91,14 @@ MANFAAT = {
         "kesehatan": [
             "Membantu melancarkan pencernaan dan meredakan perut kembung.",
             "Mengandung antioksidan yang membantu menangkal radikal bebas.",
-            "Membantu sebagai penambah nafsu makan alami.",
-            "Meredakan gejala flu dan batuk ringan.",
+            "Sering dipakai sebagai penambah nafsu makan alami.",
+            "Bermanfaat untuk meredakan gejala flu dan batuk ringan.",
         ],
         "masakan": [
             "Bumbu dasar kari, gulai, dan masakan Timur Tengah.",
             "Disangrai kering untuk memperkuat aroma sebelum dihaluskan.",
             "Cocok dipadukan dengan ketumbar sebagai bumbu rempah dasar.",
-            "Digunakan sebagai taburan diatas roti atau nasi kebuli.",
+            "Sering ditaburkan utuh di atas roti atau nasi kebuli.",
         ],
     },
     "kapulaga": {
@@ -102,11 +106,11 @@ MANFAAT = {
             "Membantu menyegarkan napas dan menjaga kesehatan mulut.",
             "Mendukung kesehatan jantung karena mengandung kalium.",
             "Memiliki sifat anti-inflamasi alami.",
-            "Membantu menurunkan tekanan darah secara alami.",
+            "Dipercaya membantu menurunkan tekanan darah secara alami.",
         ],
         "masakan": [
-            "Penambah aroma khas pada rendang, gulai, dan nasi biryani.",
-            "Dihaluskan terlebih dahulu agar aromanya keluar maksimal.",
+            "Pemberi aroma khas pada rendang, gulai, dan nasi biryani.",
+            "Dimemarkan terlebih dahulu agar aromanya keluar maksimal.",
             "Bahan utama dalam campuran teh rempah (masala chai).",
             "Digunakan dalam kue dan minuman hangat khas Timur Tengah.",
         ],
@@ -114,13 +118,13 @@ MANFAAT = {
     "kemiri": {
         "kesehatan": [
             "Kaya akan lemak sehat yang baik untuk kulit dan rambut.",
-            "Digunakan sebagai pengental alami pada masakan.",
+            "Sering digunakan sebagai pengental alami pada masakan.",
             "Mengandung mineral seperti magnesium dan fosfor.",
             "Membantu memberi tekstur creamy pada masakan tanpa santan.",
         ],
         "masakan": [
             "Bumbu wajib pada opor, rendang, dan gulai khas Nusantara.",
-            "Sebagai pengental bumbu dasar.",
+            "Disangrai lalu dihaluskan sebagai pengental bumbu dasar.",
             "Memberi rasa gurih dan tekstur creamy pada saus/sambal.",
             "Bahan utama sambal kacang dan bumbu pecel.",
         ],
@@ -128,13 +132,13 @@ MANFAAT = {
     "ketumbar": {
         "kesehatan": [
             "Membantu menurunkan kadar gula darah secara alami.",
-            "Memiliki kandungan vitamin C dan K yang baik untuk imun tubuh.",
+            "Kaya vitamin C dan K yang baik untuk imun tubuh.",
             "Memiliki efek menenangkan pada sistem pencernaan.",
-            "Mengurangi bau amis pada masakan.",
+            "Sering dipakai untuk mengurangi bau amis pada masakan.",
         ],
         "masakan": [
-            "Bumbu dasar masakan berbumbu kuning/orange.",
-            "Penambah aroma makanan khas yang kuat.",
+            "Bumbu dasar hampir semua masakan berbumbu kuning/oranye.",
+            "Disangrai kering sebelum dihaluskan agar aroma lebih keluar.",
             "Cocok untuk marinasi daging, ikan, dan ayam goreng bumbu.",
             "Bahan utama bubuk kari dan bumbu soto.",
         ],
@@ -148,9 +152,9 @@ MANFAAT = {
         ],
         "masakan": [
             "Penyedap khas sup kaki kambing, semur, dan sup krim.",
-            "Memiliki aroma khas yang segar.",
-            "Penambah aroma makanan khas yang kuat.",
-            "Sebagai bahan campuran kue, puding, dan minuman hangat musim dingin.",
+            "Diparut langsung ke masakan agar aromanya tetap segar.",
+            "Digunakan dalam jumlah sedikit karena rasanya sangat kuat.",
+            "Bahan campuran kue, puding, dan minuman hangat musim dingin.",
         ],
     },
 }
@@ -271,6 +275,39 @@ def render_error_card(msg: str) -> str:
     <div class="error-card visible">
       <div class="error-icon">⚠️</div>
       <p>{msg}</p>
+    </div>'''
+
+
+def render_benefit_card(cls: str) -> str:
+    """Kartu 'Manfaat Biji Rempah' — ditampilkan setelah hasil identifikasi,
+    baik di tab Upload maupun Real-time. Berisi 2 bagian: manfaat kesehatan
+    dan kegunaan sebagai bumbu masakan."""
+    label = CLASSES.get(cls, {}).get("name", cls)
+    data = MANFAAT.get(cls, {})
+    kesehatan = data.get("kesehatan", [])
+    masakan = data.get("masakan", [])
+    if not kesehatan and not masakan:
+        return ""
+
+    kesehatan_html = ""
+    if kesehatan:
+        items = "".join(f"<li>{p}</li>" for p in kesehatan)
+        kesehatan_html = f'''
+        <div class="benefit-section-title"><i class="ti ti-heart"></i> Manfaat Kesehatan</div>
+        <ul class="benefit-list">{items}</ul>'''
+
+    masakan_html = ""
+    if masakan:
+        items = "".join(f"<li>{p}</li>" for p in masakan)
+        masakan_html = f'''
+        <div class="benefit-section-title" style="margin-top:14px"><i class="ti ti-chef-hat"></i> Kegunaan dalam Bumbu Masakan</div>
+        <ul class="benefit-list">{items}</ul>'''
+
+    return f'''
+    <div class="benefit-card">
+      <div class="benefit-card-title"><i class="ti ti-leaf"></i> Manfaat {label}</div>
+      {kesehatan_html}
+      {masakan_html}
     </div>'''
 
 
@@ -1232,6 +1269,64 @@ div[data-testid="stCameraInput"]::after {
   50%  { top: 68%; }
   100% { top: 8%; }
 }
+
+/* ════════════════════════════════════════════════
+   MANFAAT BIJI REMPAH — kartu baru setelah hasil
+   identifikasi (Upload & Real-time), mengikuti gaya
+   card lain (surface-card, radius-lg, shadow-card).
+   ════════════════════════════════════════════════ */
+.benefit-card {
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem 1.5rem;
+  margin-top: 0.75rem;
+  box-shadow: var(--shadow-card);
+}
+.benefit-card-title {
+  font-family: var(--ff-display);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.benefit-card-title i { color: var(--green-600); font-size: 15px; }
+.benefit-section-title {
+  font-family: var(--ff-display);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.benefit-section-title i { color: var(--green-600); font-size: 13px; }
+.benefit-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.benefit-list li {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  padding-left: 18px;
+  position: relative;
+}
+.benefit-list li::before {
+  content: "🌿";
+  position: absolute;
+  left: 0;
+  top: 0;
+  font-size: 11px;
+}
 """
 
 md(f"<style>{ORIGINAL_CSS}{EXTRA_CSS}</style>")
@@ -1311,7 +1406,7 @@ with tab_upload:
             else:
                 with st.spinner("Mengidentifikasi jenis biji rempah…"):
                     preds = predict_image(pil_img)
-                md(f'<div class="app">{render_result_card(preds, data_url)}</div>')
+                md(f'<div class="app">{render_result_card(preds, data_url)}{render_benefit_card(preds[0]["class"])}</div>')
     else:
         st.session_state.pop("upload_analyzed_key", None)
 
@@ -1405,4 +1500,5 @@ with tab_live:
           <div class="prob-section-title" style="margin:12px 0 8px">Semua kelas (5)</div>
           <div class="prob-grid">{bars}</div>
         </div>
+        {render_benefit_card(top["class"])}
         </div>''')
