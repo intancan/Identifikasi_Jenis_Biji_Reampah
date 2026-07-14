@@ -1,3 +1,4 @@
+
 """
 SpiceLens — app.py (Streamlit, single-file)
 Klasifikasi Biji Rempah — MobileNetV2 (.keras)
@@ -1443,7 +1444,7 @@ with tab_live:
         2. Letakkan <strong>satu jenis biji rempah saja</strong> di atas latar belakang polos (hindari campuran beberapa jenis).<br>
         3. Arahkan kamera dari jarak dekat (± 5–10 cm) supaya biji rempah mengisi sebagian besar bingkai.<br>
         4. Klik tombol kamera di bawah pratinjau untuk menjepret foto.<br>
-        5. Tunggu sebentar — hasil identifikasi (atau notifikasi "bukan rempah" jika objek tidak dikenali) akan muncul otomatis di bawah.
+        5. Tunggu sebentar — hasil identifikasi akan muncul otomatis di bawah.
       </div>
     </div>
     </div>''')
