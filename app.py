@@ -74,6 +74,16 @@ IMG_SIZE   = 224
 # Urutan HARUS sama dengan flow_from_directory (alphabetical)
 CLASS_LABELS = ["jintan", "kapulaga", "kemiri", "ketumbar", "pala"]
 
+# Ambang kepercayaan minimum (probabilitas kelas teratas) supaya sebuah
+# jepretan dianggap benar-benar salah satu dari 5 biji rempah di atas.
+# Model MobileNetV2 ini HANYA dilatih untuk 5 kelas tsb, jadi ia akan selalu
+# mengeluarkan probabilitas untuk salah satunya walau objek di foto bukan
+# rempah sama sekali (mis. wajah, benda lain, latar kosong). Karena itu,
+# kalau probabilitas kelas teratas berada DI BAWAH ambang ini, hasil
+# ditampilkan sebagai "Bukan Rempah Terdeteksi" alih-alih memaksakan salah
+# satu dari 5 label. Nilai bisa disesuaikan (0.0 - 1.0) sesuai kebutuhan.
+NOT_SPICE_THRESHOLD = 0.55
+
 # Metadata kelas (nama tampilan + nama latin). Tidak ada lagi field "tips".
 CLASSES = {
     "jintan":   {"name": "Jintan",   "latin": "Cuminum cyminum"},
@@ -1430,6 +1440,24 @@ with tab_upload:
 with tab_live:
     md('<div class="app"><div class="step-label">02 — Deteksi Real-time (Kamera Langsung)</div></div>')
 
+    # ── Instruksi penggunaan kamera real-time ──────────────────
+    # Kartu ini pakai CSS ".live-settings" yang sudah ada di ORIGINAL_CSS
+    # (sebelumnya untuk pengaturan ambang deteksi, kini dipakai ulang
+    # sebagai panduan singkat cara menggunakan kamera).
+    md('''
+    <div class="app">
+    <div class="live-settings">
+      <div class="live-settings-label"><i class="ti ti-info-circle"></i> Cara Menggunakan Kamera Real-time</div>
+      <div class="live-settings-hint">
+        1. Pastikan <strong>pencahayaan cukup terang</strong> agar tekstur biji rempah terlihat jelas.<br>
+        2. Letakkan <strong>satu jenis biji rempah saja</strong> di atas latar belakang polos (hindari campuran beberapa jenis).<br>
+        3. Arahkan kamera dari jarak dekat (± 5–10 cm) supaya biji rempah mengisi sebagian besar bingkai.<br>
+        4. Klik tombol kamera di bawah pratinjau untuk menjepret foto.<br>
+        5. Tunggu sebentar — hasil identifikasi (atau notifikasi "bukan rempah" jika objek tidak dikenali) akan muncul otomatis di bawah.
+      </div>
+    </div>
+    </div>''')
+
     if not model_loaded:
         md(f'<div class="app">{render_error_card("Model belum dimuat.")}</div>')
 
@@ -1473,7 +1501,19 @@ with tab_live:
 
         top = preds[0]
         pct = round(top["probability"] * 100, 1)
-        status, status_text, icon = "locked", f"Teridentifikasi: {top['label']}", "ti-lock"
+
+        # ── Deteksi "bukan rempah" ──────────────────────────────
+        # Model hanya mengenal 5 kelas rempah, jadi ia akan selalu memaksakan
+        # salah satu label meski objek di foto bukan biji rempah. Jika
+        # probabilitas kelas teratas < NOT_SPICE_THRESHOLD, anggap gambar
+        # BUKAN salah satu dari 5 rempah tsb dan tampilkan status khusus,
+        # tanpa memaksakan label kelas maupun kartu manfaat.
+        is_spice = top["probability"] >= NOT_SPICE_THRESHOLD
+
+        if is_spice:
+            status, status_text, icon = "locked", f"Teridentifikasi: {top['label']}", "ti-lock"
+        else:
+            status, status_text, icon = "rejected", "Bukan Rempah Terdeteksi", "ti-alert-triangle"
 
         bars = "".join(f'''
         <div class="prob-row">
@@ -1482,6 +1522,15 @@ with tab_live:
           <div class="prob-bar-outer"><div class="prob-bar-inner{" top" if i==0 else ""}" style="width:{round(p["probability"]*100,1)}%"></div></div>
           <span class="prob-pct">{round(p["probability"]*100,1)}%</span>
         </div>''' for i, p in enumerate(preds))
+
+        not_spice_hint = ""
+        if not is_spice:
+            not_spice_hint = '''
+            <p style="font-size:12px;color:var(--text-muted);margin-top:10px">
+              Objek pada gambar tidak dikenali sebagai salah satu dari 5 jenis biji rempah
+              (jintan, kapulaga, kemiri, ketumbar, pala). Coba jepret ulang dengan biji rempah
+              yang lebih jelas, latar polos, dan pencahayaan cukup.
+            </p>'''
 
         render_into_slot(f'''
         <div class="app">
@@ -1494,12 +1543,13 @@ with tab_live:
             <span class="live-status-pill {status}"><i class="ti {icon}"></i> {status_text}</span>
           </div>
           <div class="live-top">
-            <span class="live-name">{top["label"]}</span>
+            <span class="live-name">{top["label"] if is_spice else "Bukan Rempah"}</span>
             <span class="live-conf">{pct}%</span>
           </div>
           <div class="live-bar-outer"><div class="live-bar-inner" style="width:{pct}%"></div></div>
+          {not_spice_hint}
           <div class="prob-section-title" style="margin:12px 0 8px">Semua kelas (5)</div>
           <div class="prob-grid">{bars}</div>
         </div>
-        {render_benefit_card(top["class"])}
+        {render_benefit_card(top["class"]) if is_spice else ""}
         </div>''')
